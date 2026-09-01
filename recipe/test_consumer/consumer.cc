@@ -26,6 +26,7 @@
 #include "v8-isolate.h"
 #include "v8-local-handle.h"
 #include "v8-primitive.h"
+#include "v8-promise.h"
 #include "v8-script.h"
 
 namespace {
@@ -54,9 +55,39 @@ void Check(const char* what, const std::string& got, const std::string& want) {
   }
 }
 
+// import() is checked from C++ rather than from JavaScript: V8 rejects the
+// promise instead of throwing, and observing a rejection from script would
+// mean draining microtasks, which says nothing extra.  The promise arrives
+// already rejected, so its state can simply be read.
+void CheckDynamicImportIsDead(v8::Isolate* isolate,
+                              v8::Local<v8::Context> context) {
+  v8::HandleScope scope(isolate);
+  v8::Local<v8::String> source =
+      v8::String::NewFromUtf8Literal(isolate, "import('fs')");
+  v8::Local<v8::Script> script =
+      v8::Script::Compile(context, source).ToLocalChecked();
+  v8::Local<v8::Value> result = script->Run(context).ToLocalChecked();
+
+  if (!result->IsPromise()) {
+    std::printf("%-40s %-12s %s\n", "import('fs')", "not a promise", "FAILED");
+    ++failures;
+    return;
+  }
+  v8::Local<v8::Promise> promise = result.As<v8::Promise>();
+  const bool rejected = promise->State() == v8::Promise::kRejected;
+  std::printf("%-40s %-12s %s\n", "import('fs')",
+              rejected ? "rejected" : "NOT rejected", rejected ? "ok" : "FAILED");
+  if (!rejected) {
+    ++failures;
+    return;
+  }
+  // Mark it handled; an unhandled rejection is not what this is testing.
+  promise->MarkAsHandled();
+}
+
 }  // namespace
 
-int main(int argc, char* argv[]) {
+int main() {
   // The whole embedding ceremony.  It lives here, in the consumer, and not in
   // the package: what the package ships is the engine.
   std::unique_ptr<v8::Platform> platform = v8::platform::NewDefaultPlatform();
@@ -92,14 +123,14 @@ int main(int argc, char* argv[]) {
       std::snprintf(label, sizeof(label), "typeof %s", name);
       Check(label, Eval(isolate, context, expression), "undefined");
     }
-    // The other half of the same claim: no dynamic loader to reach around the
-    // missing globals with.  import() rejects rather than resolving, because
-    // nothing installed a module callback.
-    Check("import() without a host callback",
-          Eval(isolate, context,
-               "(() => { try { new Function('return import(\"fs\")')(); }"
-               " catch (e) { return 'threw'; } return 'no throw'; })()"),
-          "threw");
+    // The other half of the same claim, and the one that matters most: there
+    // is no dynamic loader to reach around the missing globals with.  In node
+    // this is the hole that survives deleting every global -- import("node:fs")
+    // through the Function constructor still hands back a working filesystem,
+    // because import() rides node's loader rather than anything reachable from
+    // JavaScript.  An engine with no host callback installed has no loader at
+    // all, so the promise comes back already rejected.
+    CheckDynamicImportIsDead(isolate, context);
   }
 
   isolate->Dispose();
