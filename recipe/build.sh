@@ -85,7 +85,11 @@ fi
 ninja -C out/Release -j${CPU_COUNT:-4} v8
 
 # Everything past here is the same job on every platform; see install.py.
-${PYTHON:-python} "${RECIPE_DIR}/install.py" \
+#
+# Plain `python`, not ${PYTHON}: this is not a Python package, so nothing put
+# an interpreter in the host prefix, and ${PYTHON} points there regardless.
+# The one to run is the build environment's, which is on PATH.
+python "${RECIPE_DIR}/install.py" \
     --source-dir . \
     --build-dir out/Release \
     --prefix "${PREFIX}" \

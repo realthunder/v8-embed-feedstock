@@ -130,7 +130,7 @@ def main():
     libdir = os.path.join(args.prefix, "lib")
     bindir = os.path.join(args.prefix, "bin")
     incdir = os.path.join(args.prefix, "include")
-    for directory in (libdir, bindir, incdir):
+    for directory in (libdir, incdir) + ((bindir,) if windows else ()):
         os.makedirs(directory, exist_ok=True)
 
     built, installed, companion = library_names(args.target_platform, args.version)
