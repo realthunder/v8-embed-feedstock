@@ -63,8 +63,13 @@ def defines_from_ninja(path):
     for token in shlex.split(line):
         if not token.startswith("-D"):
             continue
-        name, _, value = token[2:].partition("=")
-        out[name] = value
+        name, sep, value = token[2:].partition("=")
+        # `-DFOO` on a command line means `#define FOO 1`, not an empty
+        # definition, and the difference is not cosmetic: V8's headers use
+        # these as values -- `#if V8_TARGET_ARCH_X64`, `defined(
+        # BUILDING_V8_SHARED) || USING_V8_SHARED` -- so an empty define is a
+        # preprocessor syntax error rather than a wrong answer.
+        out[name] = value if sep else "1"
     return out
 
 
@@ -110,8 +115,7 @@ def main():
         "",
     ]
     for name in sorted(emitted):
-        value = emitted[name]
-        lines.append("#define %s%s" % (name, (" " + value) if value else ""))
+        lines.append("#define %s %s" % (name, emitted[name]))
     lines += ["", "#endif  // V8_EMBED_V8_GN_H_", ""]
 
     with open(args.out, "w") as fh:
