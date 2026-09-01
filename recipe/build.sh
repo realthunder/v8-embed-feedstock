@@ -58,12 +58,16 @@ export GYP_DEFINES="soname_version=${PKG_VERSION}"
 # --with-intl=system-icu takes ICU from this prefix instead of node's bundled
 # copy, so there is one ICU in the process and no data file to ship.  Windows
 # cannot do this; see bld.bat.
+# --without-ssl for the same reason as bld.bat: no openssl is built here, and
+# configuring it is pure cost.  Kept identical across platforms so the one
+# that gets tested least differs in as few places as possible.
 ./configure \
     --ninja \
     --verbose \
     --prefix=${PREFIX} \
     --shared \
     --without-node-snapshot \
+    --without-ssl \
     --with-intl=system-icu \
     ${EXTRA_ARGS:-}
 

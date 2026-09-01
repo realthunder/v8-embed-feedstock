@@ -37,15 +37,20 @@ if "%target_platform%"=="win-arm64" (
 :: V8_INTL_SUPPORT is not one of the macros the public headers read -- so this
 :: is a difference in JavaScript locale data and nothing else.
 ::
-:: --openssl-no-asm keeps configure from probing for NASM.  No openssl is
-:: built here; the probe is the only thing that would have wanted it.
+:: --without-ssl, and not --openssl-no-asm, which it is incompatible with.
+:: No openssl is built here -- only the `v8` target -- and configuring it is
+:: what breaks on Windows: configure_openssl reads OPENSSL_VERSION_NUMBER out
+:: of the bundled headers by running the compiler as `cc -dM -E -x c`, which
+:: are GCC's flags.  conda's MSVC activation sets CC=cl.exe, cl rejects them,
+:: the version comes back None and configure dies subscripting it.  Skipping
+:: openssl skips the whole question.
 python configure.py ^
     --ninja ^
     --verbose ^
     --dest-cpu=%DEST_CPU% ^
     --shared ^
     --without-node-snapshot ^
-    --openssl-no-asm ^
+    --without-ssl ^
     --with-intl=small-icu
 if errorlevel 1 exit 1
 
