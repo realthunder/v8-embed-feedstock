@@ -64,6 +64,7 @@ python configure.py ^
     --shared ^
     --without-node-snapshot ^
     --without-ssl ^
+    --v8-disable-temporal-support ^
     --with-intl=small-icu
 if errorlevel 1 exit 1
 

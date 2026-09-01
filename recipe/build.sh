@@ -69,6 +69,13 @@ export GYP_DEFINES="soname_version=${PKG_VERSION}"
 # --without-ssl for the same reason as bld.bat: no openssl is built here, and
 # configuring it is pure cost.  Kept identical across platforms so the one
 # that gets tested least differs in as few places as possible.
+#
+# --v8-disable-temporal-support for a sharper reason: without it, whether the
+# engine has the Temporal API is decided by whether a Rust toolchain happened
+# to be on the build machine.  configure quietly turns Temporal off when cargo
+# is missing, so the linux packages were built without it and the Windows
+# runner, which ships Rust, was configuring it in -- two platforms, two
+# different engines from one recipe.  Saying it explicitly makes them agree.
 ./configure \
     --ninja \
     --verbose \
@@ -76,6 +83,7 @@ export GYP_DEFINES="soname_version=${PKG_VERSION}"
     --shared \
     --without-node-snapshot \
     --without-ssl \
+    --v8-disable-temporal-support \
     --with-intl=system-icu \
     ${EXTRA_ARGS:-}
 
