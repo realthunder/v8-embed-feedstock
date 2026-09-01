@@ -15,6 +15,14 @@ if [[ "$target_platform" == osx-* ]]; then
     # The deployment target is set by the build, not by clang's baked-in CPPFLAGS.
     export CPPFLAGS="$(echo ${CPPFLAGS:-} | sed -E 's@\-mmacosx\-version\-min=[^ ]*@@g')"
     export CPPFLAGS="${CPPFLAGS} -D_DARWIN_C_SOURCE"
+    # abseil's cctz calls CFTimeZoneCopyDefault et al from local_time_zone().
+    # abseil.gyp declares the framework in direct_dependent_settings, which
+    # reaches the targets that depend on abseil directly and not the `v8`
+    # target that does the linking.  node never notices: its links are not
+    # whole-archive, so time_zone_lookup.o is never pulled in.  Ours is --
+    # a component build of V8 links with -all_load -- so every abseil object
+    # comes along, including that one.
+    export LDFLAGS="${LDFLAGS} -framework CoreFoundation"
 else
     # clock_gettime; V8 uses it and glibc before 2.17 keeps it in librt.
     export LDFLAGS="$LDFLAGS -lrt"

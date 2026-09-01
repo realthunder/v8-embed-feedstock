@@ -30,6 +30,19 @@ if "%target_platform%"=="win-arm64" (
     set "DEST_CPU=x64"
 )
 
+:: Tell gyp which Visual Studio to use instead of letting it hunt.  Its
+:: autodetection walks the registry and came up empty on the CI image even
+:: though vcvarsall had already set the environment up, which fails the whole
+:: build with "Could not locate Visual Studio installation".  Setting both of
+:: these short-circuits the search entirely: gyp takes the version and path it
+:: is given and trusts that the environment is configured, which after conda's
+:: compiler activation it is.
+if not defined GYP_MSVS_VERSION if "%VisualStudioVersion%"=="18.0" set "GYP_MSVS_VERSION=2026"
+if not defined GYP_MSVS_VERSION if "%VisualStudioVersion%"=="17.0" set "GYP_MSVS_VERSION=2022"
+if not defined GYP_MSVS_VERSION if "%VisualStudioVersion%"=="16.0" set "GYP_MSVS_VERSION=2019"
+if defined GYP_MSVS_VERSION if not defined GYP_MSVS_OVERRIDE_PATH if defined VSINSTALLDIR set "GYP_MSVS_OVERRIDE_PATH=%VSINSTALLDIR%"
+echo GYP_MSVS_VERSION=%GYP_MSVS_VERSION% GYP_MSVS_OVERRIDE_PATH=%GYP_MSVS_OVERRIDE_PATH%
+
 :: --with-intl=small-icu, where the unix build uses system-icu.  node can only
 :: find a system ICU through pkg-config, which is not something to rely on
 :: under MSVC with conda's paths; small-icu builds deps/icu-small into the
