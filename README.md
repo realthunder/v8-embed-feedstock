@@ -185,6 +185,31 @@ One thing the header cannot carry: V8 reads `DEBUG` in its public headers,
 and the packaged library is built without it. Do not compile an embedder
 with `-DDEBUG`.
 
+### ICU, and what "small" means
+
+Every platform builds node's bundled `small-icu` into the library, which is
+why the package has **no runtime dependencies at all** beyond libc and the
+C++ runtime. `small` trims ICU's *locale tables*, not its character data.
+Measured on a build of this recipe:
+
+| | |
+|---|---|
+| strings, UTF-8 at the embedder boundary, `JSON`, codepoint iteration, ordering | unaffected -- V8 strings are UTF-16 internally and none of this is ICU |
+| `'e\u0301'.normalize('NFC')`, `/\p{Script=Han}/u` | unaffected -- the Unicode character database ships in small-icu |
+| `Intl.DateTimeFormat('de')`, `Intl.NumberFormat('de')`, `localeCompare(..., 'de')` | falls back to English/root |
+
+So non-ASCII text is in no way restricted; what you lose is non-English
+locale *formatting*. `V8_INTL_SUPPORT` is still defined, so the C++ ABI is
+identical to a full-ICU build either way.
+
+Two alternatives were weighed and rejected. `system-icu` works only through
+`pkg-config`, so it cannot be used on Windows at all, and it puts an `icu`
+pin on the package -- conda-forge bumps ICU roughly yearly, and because
+`run_exports` pins consumers to an exact `v8-embed`, every bump would
+cascade a rebuild into them. `full-icu` would restore the locale tables at
+roughly +30 MB, and is the thing to revisit if an embedder ever needs
+`Intl` in a language other than English.
+
 ## ABI
 
 There is none between versions. V8 makes no compatibility promise across any
@@ -211,17 +236,11 @@ the same `configure.py`, the same GYP files, MSVC instead of gcc. Nothing
 about the shared-V8 mechanism is unix-specific; `v8.gyp` carries the
 Windows half of it, and a component build is how Chromium builds V8 there.
 
-Two things differ on Windows, both in `bld.bat`:
-
-- **ICU.** node can only find a system ICU through `pkg-config`, which is
-  not something to rely on under MSVC with conda's paths, so Windows builds
-  node's bundled `small-icu` into the library. The C++ ABI is identical --
-  `V8_INTL_SUPPORT` is not one of the macros the public headers read -- so
-  this is a difference in JavaScript locale data and nothing else.
-- **No SONAME.** `v8.gyp` turns `soname_version` into a product extension
-  without checking the OS, which on Windows would name the DLL
-  `v8.so.14.6.202.34`. A Windows consumer gets its version guarantee from
-  the package pin instead.
+One thing differs on Windows, in `bld.bat`: **no SONAME.** `v8.gyp` turns
+`soname_version` into a product extension without checking the OS, which
+on Windows would name the DLL `v8.so.14.6.202.34`. A Windows consumer gets
+its version guarantee from the package pin instead. Everything else --
+the flags, the ICU mode, the install step -- is the same on all five.
 
 `win-arm64` is left out for now: a cross build of a compiler-heavy target
 with nowhere to run its own tests.

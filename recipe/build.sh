@@ -63,9 +63,14 @@ export GYP_DEFINES="soname_version=${PKG_VERSION}"
 # correct when the library is dlopen'd.  A consumer reached through a Python
 # extension module is loaded exactly that way.
 #
-# --with-intl=system-icu takes ICU from this prefix instead of node's bundled
-# copy, so there is one ICU in the process and no data file to ship.  Windows
-# cannot do this; see bld.bat.
+# --with-intl=small-icu builds node's bundled ICU into the library on every
+# platform, which is what makes the package depend on nothing at run time.
+# It trims ICU's LOCALE tables, not its character data: strings, UTF-8 at the
+# embedder boundary, normalize() and \p{...} are untouched and V8_INTL_SUPPORT
+# is still on.  What degrades is Intl for non-English locales, which nothing
+# embedding this engine asks for.  The alternative, system-icu, works only
+# through pkg-config and so cannot be used on Windows anyway -- this way every
+# platform gets the same engine instead of two.
 # --without-ssl for the same reason as bld.bat: no openssl is built here, and
 # configuring it is pure cost.  Kept identical across platforms so the one
 # that gets tested least differs in as few places as possible.
@@ -84,7 +89,7 @@ export GYP_DEFINES="soname_version=${PKG_VERSION}"
     --without-node-snapshot \
     --without-ssl \
     --v8-disable-temporal-support \
-    --with-intl=system-icu \
+    --with-intl=small-icu \
     ${EXTRA_ARGS:-}
 
 if [[ "${target_platform}" != "${build_platform}" ]]; then

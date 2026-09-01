@@ -46,19 +46,10 @@ requirements:
     - python 3.13.*
     - ninja
     - if: unix
-      then:
-        # pkg-config is how node's configure finds a system ICU, which is why
-        # the Windows build uses node's bundled one instead; see bld.bat.
-        - pkg-config
-        - sed
-    - if: build_platform != target_platform
-      then:
-        - icu
-  host:
-    # Windows links node's bundled small-icu into the library and needs no
-    # ICU here.
-    - if: unix
-      then: icu
+      then: sed
+  # No host requirements at all.  ICU is node's bundled small-icu, compiled
+  # into the library, and nothing else is linked from this prefix -- so the
+  # package depends on nothing but libc and the C++ runtime.
 
   run_exports:
     # V8 offers no ABI stability between any two versions, not even patch

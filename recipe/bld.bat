@@ -43,12 +43,7 @@ if not defined GYP_MSVS_VERSION if "%VisualStudioVersion%"=="16.0" set "GYP_MSVS
 if defined GYP_MSVS_VERSION if not defined GYP_MSVS_OVERRIDE_PATH if defined VSINSTALLDIR set "GYP_MSVS_OVERRIDE_PATH=%VSINSTALLDIR%"
 echo GYP_MSVS_VERSION=%GYP_MSVS_VERSION% GYP_MSVS_OVERRIDE_PATH=%GYP_MSVS_OVERRIDE_PATH%
 
-:: --with-intl=small-icu, where the unix build uses system-icu.  node can only
-:: find a system ICU through pkg-config, which is not something to rely on
-:: under MSVC with conda's paths; small-icu builds deps/icu-small into the
-:: library and needs nothing external.  The C++ ABI is identical either way --
-:: V8_INTL_SUPPORT is not one of the macros the public headers read -- so this
-:: is a difference in JavaScript locale data and nothing else.
+:: --with-intl=small-icu, the same as build.sh; see the note there.
 ::
 :: --without-ssl, and not --openssl-no-asm, which it is incompatible with.
 :: No openssl is built here -- only the `v8` target -- and configuring it is
