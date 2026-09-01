@@ -17,9 +17,6 @@ github_actions:
   triggers:
     - push
     - pull_request
-# Windows is skipped in the recipe -- nodejs-feedstock repackages the official
-# binary zip there rather than building, and there is no V8 in a binary zip to
-# link a shared library out of.  See README.md.
 build_platform:
   osx_arm64: osx_64
 provider:
@@ -27,6 +24,10 @@ provider:
   linux_aarch64: github_actions
   osx_64: github_actions
   osx_arm64: github_actions
+  # Built from source, unlike nodejs-feedstock, which repackages the official
+  # binary zip on Windows.  win-arm64 is left out for now: it would be a cross
+  # build of a compiler-heavy target with nowhere to run its own tests.
+  win_64: github_actions
 linter:
   skip:
     - lint_stdlib

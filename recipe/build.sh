@@ -56,7 +56,8 @@ export GYP_DEFINES="soname_version=${PKG_VERSION}"
 # extension module is loaded exactly that way.
 #
 # --with-intl=system-icu takes ICU from this prefix instead of node's bundled
-# copy, so there is one ICU in the process and no data file to ship.
+# copy, so there is one ICU in the process and no data file to ship.  Windows
+# cannot do this; see bld.bat.
 ./configure \
     --ninja \
     --verbose \
@@ -76,88 +77,17 @@ fi
 
 # One target, not `all`: node, npm, openssl, the fuzzers and the test binaries
 # are all in this build graph and none of them are wanted.
-ninja -C out/Release -j${CPU_COUNT} v8
-
-if [[ "$target_platform" == osx-* ]]; then
-    SOLIB="libv8.${PKG_VERSION}.dylib"
-    LINKNAME="libv8.dylib"
-else
-    SOLIB="libv8.so.${PKG_VERSION}"
-    LINKNAME="libv8.so"
-fi
-
-mkdir -p "${PREFIX}/lib" "${PREFIX}/include"
-cp "out/Release/lib/${SOLIB}" "${PREFIX}/lib/${SOLIB}"
-ln -s "${SOLIB}" "${PREFIX}/lib/${LINKNAME}"
-
-if [[ "$target_platform" == osx-* ]]; then
-    # conda relocates by rpath; an install name that is anything else follows
-    # the build machine into the package.
-    install_name_tool -id "@rpath/${SOLIB}" "${PREFIX}/lib/${SOLIB}"
-fi
-
-# The public headers, and nothing else in that directory -- it also holds
-# OWNERS, DEPS, the inspector protocol JSON and V8's own API notes.
-( cd deps/v8/include && find . -name '*.h' -exec install -D -m 644 '{}' "${PREFIX}/include/{}" \; )
-
-# The configuration those headers read.  Without it an embedder compiles
-# against V8's defaults and links against ours, and the two disagree about
-# object layout without saying so.
-${PYTHON:-python} "${RECIPE_DIR}/emit_v8_gn_header.py" \
-    --ninja out/Release/obj/tools/v8_gypfiles/v8_base_without_compiler.ninja \
-    --include-dir deps/v8/include \
-    --out "${PREFIX}/include/v8-gn.h"
-
-# Build metadata, not an embedding API: the include path, the library, and the
-# -DV8_GN_HEADER that makes v8config.h read the file above.
-mkdir -p "${PREFIX}/lib/pkgconfig" "${PREFIX}/lib/cmake/v8-embed"
-
-cat > "${PREFIX}/lib/pkgconfig/v8-embed.pc" <<EOF
-prefix=${PREFIX}
-libdir=\${prefix}/lib
-includedir=\${prefix}/include
-
-Name: v8-embed
-Description: The V8 JavaScript engine, built to be embedded
-Version: ${PKG_VERSION}
-Libs: -L\${libdir} -lv8
-Cflags: -I\${includedir} -DV8_GN_HEADER
-EOF
-
-cat > "${PREFIX}/lib/cmake/v8-embed/v8-embed-config.cmake" <<EOF
-# find_package(v8-embed CONFIG) -> the imported target v8-embed::v8.
 #
-# V8_GN_HEADER is not optional decoration: it is what makes v8config.h read
-# the shipped v8-gn.h and so agree with the library about how V8 was built.
-include(CMakeFindDependencyMacro)
+# The default matters: bare `ninja` runs cores+2 jobs, and V8's compiler and
+# maglev translation units take a gigabyte or two each, so an unbounded build
+# on a wide machine exhausts memory and gcc reports it as an internal compiler
+# error in a different file every run.
+ninja -C out/Release -j${CPU_COUNT:-4} v8
 
-get_filename_component(_v8_embed_prefix "\${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
-
-set(V8_EMBED_VERSION "${PKG_VERSION}")
-set(V8_EMBED_INCLUDE_DIRS "\${_v8_embed_prefix}/include")
-find_library(V8_EMBED_LIBRARY NAMES v8 HINTS "\${_v8_embed_prefix}/lib" NO_DEFAULT_PATH)
-
-if(NOT TARGET v8-embed::v8)
-  add_library(v8-embed::v8 SHARED IMPORTED)
-  set_target_properties(v8-embed::v8 PROPERTIES
-    IMPORTED_LOCATION "\${V8_EMBED_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "\${V8_EMBED_INCLUDE_DIRS}"
-    INTERFACE_COMPILE_DEFINITIONS "V8_GN_HEADER"
-    INTERFACE_COMPILE_FEATURES "cxx_std_20")
-endif()
-
-set(V8_EMBED_LIBRARIES v8-embed::v8)
-set(v8-embed_FOUND TRUE)
-EOF
-
-cat > "${PREFIX}/lib/cmake/v8-embed/v8-embed-config-version.cmake" <<EOF
-set(PACKAGE_VERSION "${PKG_VERSION}")
-# V8 keeps no ABI compatibility between versions, so nothing but this version
-# is compatible with this version.
-if(PACKAGE_FIND_VERSION VERSION_EQUAL PACKAGE_VERSION)
-  set(PACKAGE_VERSION_COMPATIBLE TRUE)
-  set(PACKAGE_VERSION_EXACT TRUE)
-else()
-  set(PACKAGE_VERSION_COMPATIBLE FALSE)
-endif()
-EOF
+# Everything past here is the same job on every platform; see install.py.
+${PYTHON:-python} "${RECIPE_DIR}/install.py" \
+    --source-dir . \
+    --build-dir out/Release \
+    --prefix "${PREFIX}" \
+    --version "${PKG_VERSION}" \
+    --target-platform "${target_platform}"

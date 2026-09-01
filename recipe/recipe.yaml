@@ -31,12 +31,10 @@ source:
 
 build:
   number: ${{ build }}
-  script: build.sh
-  # Windows is not built here.  nodejs-feedstock does not build node from
-  # source on Windows -- it repackages the official binary zip, which has no
-  # V8 static libraries to link a monolith out of -- so the approach this
-  # recipe is built on has nothing to stand on there.  See README.md.
-  skip: win
+  script:
+    - if: win
+      then: bld.bat
+      else: build.sh
 
 requirements:
   build:
@@ -46,13 +44,20 @@ requirements:
     # c.f. https://github.com/nodejs/node/blob/v26.6.0/pyproject.toml
     - python 3.13.*
     - ninja
-    - pkg-config
-    - sed
+    - if: unix
+      then:
+        # pkg-config is how node's configure finds a system ICU, which is why
+        # the Windows build uses node's bundled one instead; see bld.bat.
+        - pkg-config
+        - sed
     - if: build_platform != target_platform
       then:
         - icu
   host:
-    - icu
+    # Windows links node's bundled small-icu into the library and needs no
+    # ICU here.
+    - if: unix
+      then: icu
 
   run_exports:
     # V8 offers no ABI stability between any two versions, not even patch
@@ -71,11 +76,21 @@ tests:
         - v8-gn.h
         - libplatform/libplatform.h
         - cppgc/heap.h
-      lib:
-        - v8
       files:
-        - lib/pkgconfig/v8-embed.pc
-        - lib/cmake/v8-embed/v8-embed-config.cmake
+        - if: win
+          then:
+            # A DLL in bin/ and its import library in lib/, which is where a
+            # conda prefix on Windows keeps them.
+            - Library/bin/v8.dll
+            - Library/lib/v8.lib
+            - Library/lib/pkgconfig/v8-embed.pc
+            - Library/lib/cmake/v8-embed/v8-embed-config.cmake
+          else:
+            - lib/pkgconfig/v8-embed.pc
+            - lib/cmake/v8-embed/v8-embed-config.cmake
+      lib:
+        - if: unix
+          then: v8
 
   # Compiles and RUNS an embedder.  The point is not that the library exists
   # but that the three pieces agree: the headers describe the engine that was
@@ -88,7 +103,7 @@ tests:
       script:
         - cmake -G Ninja -B build -S test_consumer -DCMAKE_BUILD_TYPE=Release
         - cmake --build build
-        - ctest --test-dir build --output-on-failure
+        - ctest --test-dir build --output-on-failure --build-config Release
       requirements:
         run:
           - ${{ compiler('cxx') }}

@@ -99,6 +99,9 @@ target_link_libraries(myapp PRIVATE v8-embed::v8)
 or `pkg-config --cflags --libs v8-embed`. `recipe/test_consumer/` is a
 complete working embedder, and it is run as part of the package test.
 
+On Windows the DLL is installed to `Library/bin/v8.dll` and its import
+library to `Library/lib/v8.lib`; the CMake target knows about both.
+
 ### `v8-gn.h`, and why you must not skip it
 
 V8's public headers are not self-describing. `v8config.h`, `v8-internal.h`
@@ -137,12 +140,32 @@ Rebuilding consumers on every bump is the honest cost of embedding V8.
 
 ## Platforms
 
-Built from source on `linux-64`, `linux-aarch64`, `osx-64` and `osx-arm64`.
+Built from source on `linux-64`, `linux-aarch64`, `osx-64`, `osx-arm64` and
+`win-64`.
 
-**Windows is skipped.** nodejs-feedstock does not build node from source on
-Windows -- it repackages the official binary zip -- and a binary zip has no
-V8 static libraries to link a shared library out of. Windows would need a
-real MSVC source build, which is a different job from this one.
+**Windows is the one platform with no inherited build.** nodejs-feedstock
+does not compile anything there: its Windows source is the official binary
+zip and its build script is six `COPY` lines, and a binary zip has no V8
+static libraries to link a shared library out of. Node itself builds from
+source on Windows perfectly well, so `bld.bat` is written against that --
+the same `configure.py`, the same GYP files, MSVC instead of gcc. Nothing
+about the shared-V8 mechanism is unix-specific; `v8.gyp` carries the
+Windows half of it, and a component build is how Chromium builds V8 there.
+
+Two things differ on Windows, both in `bld.bat`:
+
+- **ICU.** node can only find a system ICU through `pkg-config`, which is
+  not something to rely on under MSVC with conda's paths, so Windows builds
+  node's bundled `small-icu` into the library. The C++ ABI is identical --
+  `V8_INTL_SUPPORT` is not one of the macros the public headers read -- so
+  this is a difference in JavaScript locale data and nothing else.
+- **No SONAME.** `v8.gyp` turns `soname_version` into a product extension
+  without checking the OS, which on Windows would name the DLL
+  `v8.so.14.6.202.34`. A Windows consumer gets its version guarantee from
+  the package pin instead.
+
+`win-arm64` is left out for now: a cross build of a compiler-heavy target
+with nowhere to run its own tests.
 
 ## Licensing
 
