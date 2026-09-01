@@ -111,6 +111,43 @@ order. With the patch the library exports `v8::`, `cppgc::`,
 `v8_inspector::` and weak `std::` template instantiations, and nothing
 else.
 
+### Why the vendored libraries are not unbundled
+
+Asked and answered, so it does not have to be re-litigated. None of node's
+`--shared-*` switches reach these: they apply to `deps/zlib` and
+`deps/simdutf`, which are separate trees from `deps/v8/third_party/`, and
+`v8.gyp` has no `node_shared_*` conditionals at all. Unbundling any of them
+means writing the patch here.
+
+| | V8 pins | conda-forge has | |
+|---|---|---|---|
+| abseil | git rev `6d8e1a5c`, no tag, +5 local patches | `libabseil`, `cxx17` builds only | possible, but wrong |
+| highway | git rev `8295336d`, no tag | `libhwy` 1.4.0 | untagged revision |
+| simdutf | 7.7.0 | 9.0.0 | version mismatch |
+| zlib | Chromium's fork, renamed `Cr_z_*` | zlib 1.3.x | renaming is the design |
+
+abseil is the one that is demonstrably possible -- nodejs-feedstock replaces
+`abseil.gyp` with an empty target and adds `-labsl_*` link flags -- and the
+one where doing it would hurt most:
+
+- V8's copy carries five local patches, among them
+  `0001-Turn-on-hardened-mode.patch`. Hardened mode is a security build
+  option, and swapping in stock abseil turns it off silently, in a package
+  whose whole purpose is running untrusted code.
+- conda-forge builds abseil as C++17 and V8 compiles as C++20. Abseil does
+  not support mixing standard versions across its boundary; the `cxx17` in
+  the build string is that ABI variant, not a note.
+
+The benefit would have been security updates without a rebuild, and it is
+mostly illusory here: `run_exports` pins consumers to an exact `v8-embed`,
+so any update cascades a rebuild anyway; V8 is the real attack surface and
+a node bump rebuilds it along with refreshed copies of all four.
+
+What was worth doing instead is making the private copies invisible, which
+patch 0101 does. V8's public headers name none of `absl::`, `hwy::` or
+`simdutf::`, so with their symbols hidden a consumer cannot tell they are
+there.
+
 ## Using it
 
 ```cmake
