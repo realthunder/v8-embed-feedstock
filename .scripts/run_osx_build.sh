@@ -19,10 +19,10 @@ if [[ "$arch" == "x86_64" ]]; then
 fi
 sed -i.bak "s/platforms = .*/platforms = [\"osx-${arch}\"]/" pixi.toml
 echo "Creating environment"
-pixi install --environment build
-pixi list --environment build
+pixi install
+pixi list
 echo "Activating environment"
-eval "$(pixi shell-hook --environment build)"
+eval "$(pixi shell-hook)"
 mv pixi.toml.bak pixi.toml
 ( endgroup "Provisioning base env with pixi" ) 2> /dev/null
 
@@ -63,7 +63,7 @@ if [[ "${OSX_SDK_DIR:-}" == "" ]]; then
     /usr/bin/sudo chown "${USER}" "${OSX_SDK_DIR}"
   fi
 else
-  if tmpf=$(mktemp "$OSX_SDK_DIR"/tmp.XXXXXXXX 2>/dev/null); then
+  if tmpf=$(mktemp -p "$OSX_SDK_DIR" tmp.XXXXXXXX 2>/dev/null); then
       rm -f "$tmpf"
       echo "OSX_SDK_DIR is writeable without sudo, continuing"
   else
@@ -84,16 +84,7 @@ if [[ -f LICENSE.txt ]]; then
 fi
 
 if [[ "${BUILD_WITH_CONDA_DEBUG:-0}" == 1 ]]; then
-    export CONDA_BLD_PATH="${CONDA_BLD_PATH:-${FEEDSTOCK_ROOT:-$PWD}/build_artifacts}"
-    rattler-build debug setup \
-        --recipe ./recipe \
-        -m ./.ci_support/${CONFIG}.yaml \
-        --build-platform "${BUILD_PLATFORM}" \
-        --target-platform "${HOST_PLATFORM}" \
-        ${BUILD_OUTPUT_ID:+--output-name "${BUILD_OUTPUT_ID}"} \
-        ${EXTRA_CB_OPTIONS:-}
-
-    rattler-build debug shell
+    echo "rattler-build does not currently support debug mode"
 else
 
     if [[ "${HOST_PLATFORM}" != "${BUILD_PLATFORM}" ]]; then
@@ -103,7 +94,6 @@ else
     rattler-build build --recipe ./recipe \
         -m ./.ci_support/${CONFIG}.yaml \
         ${EXTRA_CB_OPTIONS:-} \
-        --build-platform "${BUILD_PLATFORM}" \
         --target-platform "${HOST_PLATFORM}" \
         --extra-meta flow_run_id="$flow_run_id" \
         --extra-meta remote_url="$remote_url" \
@@ -115,16 +105,11 @@ else
     command -v inspect_artifacts >/dev/null 2>&1 && inspect_artifacts --recipe-dir ./recipe -m ./.ci_support/${CONFIG}.yaml || echo "inspect_artifacts needs conda-forge-ci-setup >=4.9.4"
 
     ( endgroup "Inspecting artifacts" ) 2> /dev/null
-    ( startgroup "Validating outputs" ) 2> /dev/null
-
-    validate_recipe_outputs "${FEEDSTOCK_NAME}"
-
-    ( endgroup "Validating outputs" ) 2> /dev/null
 
     ( startgroup "Uploading packages" ) 2> /dev/null
 
     if [[ "${UPLOAD_PACKAGES}" != "False" ]] && [[ "${IS_PR_BUILD}" == "False" ]]; then
-      upload_package --validate --feedstock-name="${FEEDSTOCK_NAME}" ./ ./recipe ./.ci_support/${CONFIG}.yaml
+      upload_package  ./ ./recipe ./.ci_support/${CONFIG}.yaml
     fi
 
     ( endgroup "Uploading packages" ) 2> /dev/null
