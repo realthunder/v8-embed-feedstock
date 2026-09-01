@@ -146,7 +146,17 @@ real MSVC source build, which is a different job from this one.
 
 ## Licensing
 
-V8 is **BSD-3-Clause** (`deps/v8/LICENSE.v8`, "Copyright the V8 project
-authors"); the vendored abseil is Apache-2.0. Both are reproduced in the
-package. Node itself is MIT and none of it ships here. All permissive, all
-compatible with linking into an LGPL-2.1+ application.
+V8's own code is **BSD-3-Clause** (`deps/v8/LICENSE.v8`, "Copyright the V8
+project authors"). The library is not only that, and the difference is worth
+knowing before you ship it:
+
+- V8 compiles in its own copy of glibc's `sin`/`cos`
+  (`deps/v8/third_party/glibc`), which is **LGPL-2.1-or-later**. Every V8 and
+  every Chrome carries this. Shipping as a *shared* library, with the source
+  URL in the recipe, is what satisfies it.
+- The vendored abseil, highway and wasm-api headers are Apache-2.0, fp16 and
+  simdutf MIT-ish, zlib Zlib, fdlibm and strongtalk permissive.
+
+Every license file for code that is linked in is reproduced in the package.
+Node itself is MIT and none of it ships here. All of it is compatible with
+linking into an LGPL-2.1+ application, which is what FreeCAD is.

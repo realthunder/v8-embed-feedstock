@@ -103,10 +103,31 @@ about:
   homepage: https://v8.dev/
   repository: https://github.com/v8/v8
   documentation: https://v8.dev/docs/embed
-  license: BSD-3-Clause
+  # V8 itself is BSD-3-Clause, but the library is not: V8 links its own copy
+  # of glibc's sin/cos (deps/v8/third_party/glibc, LGPL-2.1-or-later) and a
+  # handful of permissively licensed vendored libraries.  Shipping it as a
+  # shared library with the source URL in the recipe satisfies the LGPL, and
+  # all of it is compatible with linking into an LGPL-2.1+ application.
+  license: BSD-3-Clause AND Apache-2.0 AND MIT AND LGPL-2.1-or-later AND Zlib
+  # V8's own umbrella license and the two it names, plus a license for every
+  # vendored library whose code is linked into the shipped object.  node's
+  # MIT is not among them: none of node ships here.
   license_file:
+    - deps/v8/LICENSE
     - deps/v8/LICENSE.v8
+    - deps/v8/LICENSE.fdlibm
+    - deps/v8/LICENSE.strongtalk
     - deps/v8/third_party/abseil-cpp/LICENSE
+    - deps/v8/third_party/fp16/LICENSE
+    - deps/v8/third_party/glibc/LICENSE
+    - deps/v8/third_party/highway/LICENSE
+    - deps/v8/third_party/inspector_protocol/LICENSE
+    - deps/v8/third_party/rapidhash-v8/LICENSE
+    - deps/v8/third_party/simdutf/LICENSE
+    - deps/v8/third_party/siphash/LICENSE
+    - deps/v8/third_party/utf8-decoder/LICENSE
+    - deps/v8/third_party/wasm-api/LICENSE
+    - deps/zlib/LICENSE
   summary: The V8 JavaScript engine, built as a shared library to embed
   description: |
     V8 as one shared library plus its public headers: the engine, its default
