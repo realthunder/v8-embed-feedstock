@@ -1,128 +1,128 @@
 schema_version: 1
 
 context:
-  version: "26.6.0"
-  # NODE_MODULE_VERSION set in src/node_version.h
-  NODE_MODULE_VERSION: 147
+  # The V8 in node's deps/v8, from deps/v8/include/v8-version.h.  This is the
+  # package's version: what ships is V8, and node is only how it is built.
+  version: "14.6.202.34"
+  node_version: "26.6.0"
+  build: 0
 
 package:
-  name: nodejs
+  name: v8-embed
   version: ${{ version }}
 
 source:
   # checksums from https://nodejs.org/dist/vX.Y.Z/SHASUMS256.txt.asc
-  - if: unix
-    then:
-      url: https://nodejs.org/dist/v${{ version }}/node-v${{ version }}.tar.gz
-      sha256: 0c1a4512ceb6ab37404900762cf325326faafed9ea96e726af6b003acf22322a
-      patches:
-        - patches/0001-stop-removing-librt.patch
-        - patches/0002-include-obj-name-in-shared-intermediate.patch
-        - patches/0003-Forward-ceilf-floorf.patch
-        - patches/0004-Support-System-abseil-cpp.patch
-        - patches/0005-Include-stdlib.h-for-malloc-free-in-bundled-fmt.patch
-        - patches/0006-Guard-V8-JSON-SIMD-path-on-scalar-only-Highway-targe.patch
-        - patches/0007-Guard-V8-string-hasher-SIMD-path-on-scalar-only-High.patch
-        - patches/0008-Explicitly-instantiate-FloatMinMaxHelper-on-RISC-V.patch
-  - if: target_platform == "win-64"
-    then:
-      url: https://nodejs.org/dist/v${{ version }}/node-v${{ version }}-win-x64.zip
-      sha256: aa81c8552f251ff280134985ccdaf16d336e2961b1e2c3eeb7b7b2221509f723
-  - if: target_platform == "win-arm64"
-    then:
-      url: https://nodejs.org/dist/v${{ version }}/node-v${{ version }}-win-arm64.zip
-      sha256: 0a738ffd9362003fc905f685b29bec2eca867d2f84f1bc37a70497423a0f7b1e
+  url: https://nodejs.org/dist/v${{ node_version }}/node-v${{ node_version }}.tar.gz
+  sha256: 0c1a4512ceb6ab37404900762cf325326faafed9ea96e726af6b003acf22322a
+  patches:
+    # Carried from conda-forge/nodejs-feedstock, so a node bump can take
+    # their patch set as it stands.  The two of theirs that only touch code
+    # this build never compiles -- system abseil, and stdlib.h for the fmt
+    # vendored under deps/LIEF -- are dropped rather than kept dormant.
+    - patches/0001-stop-removing-librt.patch
+    - patches/0002-include-obj-name-in-shared-intermediate.patch
+    - patches/0003-Forward-ceilf-floorf.patch
+    - patches/0006-Guard-V8-JSON-SIMD-path-on-scalar-only-Highway-targe.patch
+    - patches/0007-Guard-V8-string-hasher-SIMD-path-on-scalar-only-High.patch
+    - patches/0008-Explicitly-instantiate-FloatMinMaxHelper-on-RISC-V.patch
+    # Ours, numbered clear of theirs.
+    - patches/0100-Let-a-build-ask-gyp-for-a-shared-V8.patch
 
 build:
-  number: 1
-  # Prefix replacement breaks in the binary embedded configurations.
-  prefix_detection:
-    ignore_binary_files: true
+  number: ${{ build }}
+  script: build.sh
+  # Windows is not built here.  nodejs-feedstock does not build node from
+  # source on Windows -- it repackages the official binary zip, which has no
+  # V8 static libraries to link a monolith out of -- so the approach this
+  # recipe is built on has nothing to stand on there.  See README.md.
+  skip: win
 
 requirements:
   build:
-    - if: linux
-      then:
-        - git
-    - if: unix
-      then:
-        - ${{ stdlib('c') }}
-        # Rust is required for Temporal only, see the comment in the test section.
-        # - ${{ compiler('rust') }}
-        - if: unix
-          then: gnuconfig
-        - ${{ compiler('c') }}
-        - ${{ compiler('cxx') }}
-        # c.f. https://github.com/nodejs/node/blob/v24.3.0/pyproject.toml#L10
-        - python 3.13.*
-        - ninja
-        - pkg-config
-        - sed
-    # libuv is a bootstrap dependency in js2c
-    # starting with 20.3 (https://github.com/nodejs/node/pull/46997)
-    - libuv
-    # need host builds of several lib dependencies
-    # when cross-compiling
+    - ${{ compiler('c') }}
+    - ${{ compiler('cxx') }}
+    - ${{ stdlib('c') }}
+    # c.f. https://github.com/nodejs/node/blob/v26.6.0/pyproject.toml
+    - python 3.13.*
+    - ninja
+    - pkg-config
+    - sed
     - if: build_platform != target_platform
       then:
-        - libabseil
-        - brotli
-        - c-ares
         - icu
-        - libnghttp2
-        - libsqlite
-        - libuv
-        - openssl
-        - zlib
-        - zstd
   host:
-    - if: not win
-      then:
-        - libabseil
-        - brotli
-        - c-ares
-        - icu
-        - libnghttp2
-        - libsqlite
-        - libuv
-        - openssl
-        - zlib
-        - zstd
+    - icu
+
   run_exports:
-    - ${{ pin_subpackage('nodejs', upper_bound='x') }}
+    # V8 offers no ABI stability between any two versions, not even patch
+    # levels: the public headers inline code that reads object layouts the
+    # engine decides at compile time.  The SONAME says the same thing.
+    - ${{ pin_subpackage('v8-embed', upper_bound='x.x.x.x') }}
 
 tests:
-  - script:
-      - node -h
-      - node -v
-      - npm version
-      - npm install -h
-      - npm config get prefix -g
-      - if: not win
-        then:
-          - test $(echo "console.log(1 + 3)" | node) == 4
-          # Temporal support requires rust, thus make sure the toolchain gets picked up.
-          # This currently disabled as this doesn't work together with a shared ICU, see also
-          #   - https://github.com/nodejs/node/issues/62676
-          #   - https://github.com/Homebrew/homebrew-core/pull/281707
-          # - test $(node -e 'console.log(typeof Temporal)') == object || (echo "Temporal support not built"; exit 1)
-      - if: osx
-        then: test -f $PREFIX/lib/libnode.${{ NODE_MODULE_VERSION }}.dylib
-      - if: linux
-        then: test -f $PREFIX/lib/libnode.so.${{ NODE_MODULE_VERSION }}
+  - package_contents:
+      include:
+        - v8.h
+        - v8-isolate.h
+        - v8-context.h
+        - v8config.h
+        # Generated here, not by V8: the configuration the headers read.
+        - v8-gn.h
+        - libplatform/libplatform.h
+        - cppgc/heap.h
+      lib:
+        - v8
+      files:
+        - lib/pkgconfig/v8-embed.pc
+        - lib/cmake/v8-embed/v8-embed-config.cmake
+
+  # Compiles and RUNS an embedder.  The point is not that the library exists
+  # but that the three pieces agree: the headers describe the engine that was
+  # linked, the default platform and the snapshot are both inside the one
+  # library, and a context can be created and a script run.  A V8 whose
+  # snapshot or libplatform got dropped at link time passes every static check
+  # and then dies on the first isolate.
+  - if: build_platform == target_platform
+    then:
+      script:
+        - cmake -G Ninja -B build -S test_consumer -DCMAKE_BUILD_TYPE=Release
+        - cmake --build build
+        - ctest --test-dir build --output-on-failure
+      requirements:
+        run:
+          - ${{ compiler('cxx') }}
+          - ${{ stdlib('c') }}
+          - cmake
+          - ninja
+      files:
+        recipe:
+          - test_consumer/
 
 about:
-  license: MIT
-  license_file: LICENSE
-  summary: a platform for easily building fast, scalable network applications
-  homepage: https://nodejs.org/
-  repository: https://github.com/nodejs/node
+  homepage: https://v8.dev/
+  repository: https://github.com/v8/v8
+  documentation: https://v8.dev/docs/embed
+  license: BSD-3-Clause
+  license_file:
+    - deps/v8/LICENSE.v8
+    - deps/v8/third_party/abseil-cpp/LICENSE
+  summary: The V8 JavaScript engine, built as a shared library to embed
+  description: |
+    V8 as one shared library plus its public headers: the engine, its default
+    platform, its startup snapshot, and nothing else.  It is the engine an
+    application embeds when it wants to run JavaScript or WebAssembly inside
+    its own process.
 
-extra:
-  recipe-maintainers:
-    - minrk
-    - msarahan
-    - pelson
-    - blink1073
-    - xhochy
-    - ytausch
+    Engine only, deliberately.  There is no convenience API and no ready-made
+    context in this package; an embedder creates the isolate and populates the
+    global object itself.  That is the security property it exists for: a bare
+    V8 has no filesystem, no network, no process object and no module loader,
+    because those are things a host adds.  A guest gets what the embedder
+    explicitly puts in front of it and there is nothing else in the engine to
+    reach.  A package that shipped a default environment would take that away.
+
+    Built from the V8 that node vendors, using node's GYP files, because that
+    is the only way to build V8 with an ordinary toolchain -- upstream's own
+    build wants depot_tools, gclient and a downloaded clang.  It also means
+    this inherits the V8 that node keeps current and the patches node carries.

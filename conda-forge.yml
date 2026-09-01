@@ -1,29 +1,37 @@
-bot:
-  abi_migration_branches:
-  - 20.x
-  - 22.x
-  - 24.x
-build_platform:
-  linux_riscv64: linux_64
-  win_arm64: win_64
+# The recipe is rattler-build's, and the fork's channel settings live in
+# recipe/conda_build_config.yaml so a rerender cannot reset them (the
+# arrangement smesh-feedstock and freecad-rt-feedstock use).
+conda_build_tool: rattler-build
 conda_build:
   pkg_format: '2'
-conda_build_tool: rattler-build
-conda_forge_output_validation: true
+conda_forge_output_validation: false
 conda_install_tool: pixi
 github:
+  user_or_org: realthunder
   branch_name: main
   tooling_branch_name: main
 github_actions:
+  # A V8 build is long: nodejs-feedstock allows 18 hours for a full node, and
+  # this is most of that build minus the link.
   timeout_minutes: 1080
   triggers:
-  - push
-  - pull_request
-linter:
-  skip:
-  - lint_stdlib
+    - push
+    - pull_request
+# Windows is skipped in the recipe -- nodejs-feedstock repackages the official
+# binary zip there rather than building, and there is no V8 in a binary zip to
+# link a shared library out of.  See README.md.
+build_platform:
+  osx_arm64: osx_64
 provider:
   linux_64: github_actions
   linux_aarch64: github_actions
-  osx_arm64: default
+  osx_64: github_actions
+  osx_arm64: github_actions
+linter:
+  skip:
+    - lint_stdlib
+# README.md is written by hand -- it explains why a V8 package is built out of
+# the node source tree, which smithy's template cannot say.
+skip_render:
+  - README.md
 test: native_and_emulated

@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v8-embed-feedstock <noreply@github.com>
+Date: Mon, 1 Sep 2026 00:00:00 +0000
+Subject: [PATCH] Let a build ask gyp for a shared V8
+
+tools/v8_gypfiles/v8.gyp already describes the whole engine as one shared
+library: with component=="shared_library" the `v8` target becomes a
+shared_library over v8_snapshot, v8_base, v8_compiler, v8_libbase and
+v8_libplatform, and gyp's ninja generator whole-archives static
+dependencies of a shared_library, so the result is the complete engine
+with a SONAME.  Without it the same target is an empty aggregate.
+
+Node itself only ever wants the static form, so gyp_node.py appends
+-Dcomponent=static_library after everything else -- which also means the
+choice cannot be reached from GYP_DEFINES, since a later -D wins.  Read an
+environment variable instead, keeping static_library as the default, so a
+build that wants nothing but the engine can ask for the shared one without
+a second source tree.
+---
+ tools/gyp_node.py | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/tools/gyp_node.py b/tools/gyp_node.py
+index 1111111..2222222 100755
+--- a/tools/gyp_node.py
++++ b/tools/gyp_node.py
+@@ -42,7 +42,12 @@ def run_gyp(args):
+     # Tell make to write its output into the same dir
+     args.extend(['-Goutput_dir=' + output_dir])
+ 
+-  args.append('-Dcomponent=static_library')
++  # The component mode decides whether the `v8` target in
++  # tools/v8_gypfiles/v8.gyp links the engine into one shared library or
++  # stays an empty aggregate over the static pieces.  Node only wants the
++  # static form; a build that wants the engine on its own has no other way
++  # to ask, because this -D is appended last and so beats GYP_DEFINES.
++  args.append('-Dcomponent=' + os.environ.get('NODE_GYP_COMPONENT', 'static_library'))
+   args.append('-Dlibrary=static_library')
+ 
+   rc = gyp.main(args)

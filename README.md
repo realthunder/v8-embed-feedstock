@@ -1,231 +1,152 @@
-About nodejs-feedstock
-======================
+# v8-embed-feedstock
 
-Feedstock license: [BSD-3-Clause](https://github.com/conda-forge/nodejs-feedstock/blob/main/LICENSE.txt)
+A conda package for **V8 built to be embedded**: one shared library holding
+the JavaScript engine, its default platform and its startup snapshot, plus
+the public headers. No `d8`, no `node`, no JavaScript command-line tool --
+an embedder does not need one.
 
-Home: https://nodejs.org/
+## Why it is packaged
 
-Package license: MIT
+Because a bare V8 cannot reach the machine, and that is the point.
 
-Summary: a platform for easily building fast, scalable network applications
+An engine on its own is ECMAScript and WebAssembly. It has no `process`, no
+`fs`, no `net`, no `child_process` and no module loader, because every one
+of those is something a *host* adds on top -- in node's case, in C++. So an
+embedder that never adds them has a guest that cannot get out, not as a
+matter of policy that has to be audited and re-audited, but because the
+primitives are not present to be found. FreeCAD wants that for a desktop
+Pyodide: expression and spreadsheet Python coming out of a downloaded
+document, running with none of the application's reach.
 
-Development: https://github.com/nodejs/node
+The alternative was measured and rejected. Embedding **libnode** instead
+gives the engine plus node's whole environment, and node's environment
+cannot be taken back by subtraction: after `delete globalThis.process`, a
+dynamic `import("node:fs")` reached through the `Function` constructor still
+returned a working filesystem module with read *and* write. `import()` rides
+node's loader, which is not reachable from JavaScript to remove. `node
+--permission` is not an answer either -- it cannot even load Pyodide
+(`process.binding`), and it is per-process, so it cannot separate host from
+guest.
 
-Current build status
-====================
+There is no usable V8 on conda-forge to fall back on: their `v8` package
+rotted at 8.9.83 in 2021.
 
+## What this package is, and what it is not
 
-<table><tr>
-    <td>GitHub Actions</td>
-    <td>
-      <a href="https://github.com/conda-forge/nodejs-feedstock/actions/workflows/conda-build.yml">
-        <img src="https://github.com/conda-forge/nodejs-feedstock/actions/workflows/conda-build.yml/badge.svg?event=push&branch=main">
-      </a>
-    </td>
-  </tr>
-    
-  <tr>
-    <td>Azure</td>
-    <td>
-      <details>
-        <summary>
-          <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=690&branchName=main">
-            <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/nodejs-feedstock?branchName=main">
-          </a>
-        </summary>
-        <table>
-          <thead><tr><th>Variant</th><th>Status</th></tr></thead>
-          <tbody><tr>
-              <td>osx_64</td>
-              <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=690&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/nodejs-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_64_" alt="variant">
-                </a>
-              </td>
-            </tr><tr>
-              <td>osx_arm64</td>
-              <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=690&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/nodejs-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_arm64_" alt="variant">
-                </a>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </details>
-    </td>
-  </tr>
-</table>
+**Engine only.** What ships is the library, the headers, the snapshot and
+the build metadata that ties them together. There is deliberately no
+convenience API and no ready-made context: the embedder writes the twenty
+lines that create the platform, the isolate and the ArrayBuffer allocator,
+and the embedder decides what goes on the global object.
 
-Current release info
-====================
+That is a security decision, not laziness. The moment a package hands back a
+context with a default environment in it, the confinement above stops being
+a property of the artifact and becomes a promise about its defaults. So the
+package hands back a bare isolate and an empty global, and anything a guest
+can see is something the consumer put there on purpose.
 
-| Name | Downloads | Version | Platforms |
-| --- | --- | --- | --- |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-nodejs-green.svg)](https://anaconda.org/conda-forge/nodejs) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/nodejs.svg)](https://anaconda.org/conda-forge/nodejs) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/nodejs.svg)](https://anaconda.org/conda-forge/nodejs) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/nodejs.svg)](https://anaconda.org/conda-forge/nodejs) |
+The Web-platform shim a real guest needs -- `TextDecoder`, `URL`,
+`performance.now`, `crypto.getRandomValues`, a byte reader scoped to one
+directory -- is therefore *not* here. It belongs to the consumer, and
+writing it is the mechanism: you provide those and you do not provide a
+filesystem. `WebAssembly` comes free with the engine, which is what loads
+the wheels.
 
-Installing nodejs
-=================
+## Why it is built out of node's source tree
 
-Installing `nodejs` from the `conda-forge` channel can be achieved by adding `conda-forge` to your channels with:
+Upstream V8's own build wants `depot_tools`, `gclient`, GN and a downloaded
+clang -- a build system that does not sit inside a conda recipe, and the
+reason conda-forge's `v8` has not moved since 2021.
 
-```
-conda config --add channels conda-forge
-conda config --set channel_priority strict
-```
+Node vendors V8 at `deps/v8` and builds it with ordinary GYP files and an
+ordinary toolchain, and keeps it current: node 26.6.0 carries V8 14.6. So
+this feedstock is a fork of
+[conda-forge/nodejs-feedstock](https://github.com/conda-forge/nodejs-feedstock),
+which buys the V8 pin, node's V8 patches, and their cross-build for free,
+and stays cheap to follow forward.
 
-How to use
-----------
+**Nothing forks node's source.** The changes are recipe-level:
 
-<details>
-<summary>With conda</summary>
+- `tools/v8_gypfiles/v8.gyp` already describes the whole engine as one
+  shared library. With `component=="shared_library"` the `v8` target becomes
+  a `shared_library` over `v8_snapshot`, `v8_base`, `v8_compiler`,
+  `v8_libbase` and `v8_libplatform`, and gyp's ninja generator
+  whole-archives static dependencies of a shared library -- so the result is
+  the complete engine with a SONAME. No monolith target had to be written.
+- The one patch that is ours,
+  `0100-Let-a-build-ask-gyp-for-a-shared-V8.patch`, makes that mode
+  reachable. `tools/gyp_node.py` appends `-Dcomponent=static_library` after
+  everything else, which also puts it out of reach of `GYP_DEFINES`, since a
+  later `-D` wins. The patch reads an environment variable instead and keeps
+  the static default.
+- The build asks ninja for the `v8` target alone. node, npm, openssl and the
+  test binaries are all in the same graph and none of them are built.
 
-```
-conda install nodejs
-```
+Six of nodejs-feedstock's eight patches are carried unchanged, so a node
+bump can take their set as it stands. The two that only touch code this
+build never compiles -- system abseil, and a `stdlib.h` include for the
+`fmt` vendored under `deps/LIEF` -- are dropped rather than kept dormant.
+abseil, highway, simdutf and zlib come from node's bundled copies and are
+linked *into* the library, so the package has no runtime dependency on them.
 
-</details>
+## Using it
 
-<details>
-<summary>With mamba</summary>
-
-```
-mamba install nodejs
-```
-
-</details>
-
-<details>
-<summary>With pixi</summary>
-
-```
-# for adding to your local project
-pixi add nodejs
-# for installing globally
-pixi global install nodejs
+```cmake
+find_package(v8-embed CONFIG REQUIRED)
+target_link_libraries(myapp PRIVATE v8-embed::v8)
 ```
 
-</details>
+or `pkg-config --cflags --libs v8-embed`. `recipe/test_consumer/` is a
+complete working embedder, and it is run as part of the package test.
 
-Search package versions
------------------------
+### `v8-gn.h`, and why you must not skip it
 
-It is possible to list all of the versions of `nodejs` available on your platform:
+V8's public headers are not self-describing. `v8config.h`, `v8-internal.h`
+and the inline code in `v8-local-handle.h` read a handful of macros
+recording how the engine was compiled -- pointer compression, the sandbox,
+the target OS, whether the engine is in a shared library -- and get object
+layout wrong, silently, if your idea of them differs from the library's.
 
-<details>
-<summary>With conda</summary>
+A GN build of V8 hands embedders those macros in a generated `v8-gn.h`, and
+`v8config.h` includes it when `V8_GN_HEADER` is defined. Node's GYP port has
+no equivalent: it passes them on the command line to every V8 target, which
+is enough for code inside node's build and nothing else. So this recipe
+reconstructs that header (`recipe/emit_v8_gn_header.py`) from the flags the
+build actually used, intersected with the macros the public headers actually
+test, and ships it.
 
-```
-conda search nodejs --channel conda-forge
-```
+**Compile with `-DV8_GN_HEADER`.** The CMake target and the `.pc` file both
+carry it; if you build by hand, you must add it. Without it your translation
+units describe a different engine than the one they link against.
 
-</details>
+One thing the header cannot carry: V8 reads `DEBUG` in its public headers,
+and the packaged library is built without it. Do not compile an embedder
+with `-DDEBUG`.
 
-<details>
-<summary>With mamba</summary>
+## ABI
 
-```
-mamba search nodejs --channel conda-forge
-```
+There is none between versions. V8 makes no compatibility promise across any
+two of its versions, not even patch levels, and the headers inline code over
+layouts the engine fixes at compile time. So:
 
-</details>
+- the SONAME is the whole version (`libv8.so.14.6.202.34`),
+- `run_exports` pins consumers to that exact version,
+- the shipped CMake version file reports compatible only on an exact match.
 
-<details>
-<summary>With pixi</summary>
+Rebuilding consumers on every bump is the honest cost of embedding V8.
 
-```
-pixi search nodejs --channel conda-forge
-```
+## Platforms
 
-</details>
+Built from source on `linux-64`, `linux-aarch64`, `osx-64` and `osx-arm64`.
 
-<details>
-<summary>With mamba repoquery, which may provide more information</summary>
+**Windows is skipped.** nodejs-feedstock does not build node from source on
+Windows -- it repackages the official binary zip -- and a binary zip has no
+V8 static libraries to link a shared library out of. Windows would need a
+real MSVC source build, which is a different job from this one.
 
-```
-# Search all versions available on your platform:
-mamba repoquery search nodejs --channel conda-forge
+## Licensing
 
-# List packages depending on `nodejs`:
-mamba repoquery whoneeds nodejs --channel conda-forge
-
-# List dependencies of `nodejs`:
-mamba repoquery depends nodejs --channel conda-forge
-```
-
-</details>
-
-
-About conda-forge
-=================
-
-[![Powered by
-NumFOCUS](https://img.shields.io/badge/powered%20by-NumFOCUS-orange.svg?style=flat&colorA=E1523D&colorB=007D8A)](https://numfocus.org)
-
-conda-forge is a community-led conda channel of installable packages.
-In order to provide high-quality builds, the process has been automated into the
-conda-forge GitHub organization. The conda-forge organization contains one repository
-for each of the installable packages. Such a repository is known as a *feedstock*.
-
-A feedstock is made up of a conda recipe (the instructions on what and how to build
-the package) and the necessary configurations for automatic building using freely
-available continuous integration services. Thanks to the awesome service provided by
-[Azure](https://azure.microsoft.com/en-us/services/devops/), [GitHub](https://github.com/),
-[CircleCI](https://circleci.com/), [AppVeyor](https://www.appveyor.com/),
-[Drone](https://cloud.drone.io/welcome), and [TravisCI](https://travis-ci.com/)
-it is possible to build and upload installable packages to the
-[conda-forge](https://anaconda.org/conda-forge) [anaconda.org](https://anaconda.org/)
-channel for Linux, Windows and OSX respectively.
-
-To manage the continuous integration and simplify feedstock maintenance,
-[conda-smithy](https://github.com/conda-forge/conda-smithy) has been developed.
-Using the ``conda-forge.yml`` within this repository, it is possible to re-render all of
-this feedstock's supporting files (e.g. the CI configuration files) with ``conda smithy rerender``.
-
-For more information, please check the [conda-forge documentation](https://conda-forge.org/docs/).
-
-Terminology
-===========
-
-**feedstock** - the conda recipe (raw material), supporting scripts and CI configuration.
-
-**conda-smithy** - the tool which helps orchestrate the feedstock.
-                   Its primary use is in the construction of the CI ``.yml`` files
-                   and simplify the management of *many* feedstocks.
-
-**conda-forge** - the place where the feedstock and smithy live and work to
-                  produce the finished article (built conda distributions)
-
-
-Updating nodejs-feedstock
-=========================
-
-If you would like to improve the nodejs recipe or build a new
-package version, please fork this repository and submit a PR. Upon submission,
-your changes will be run on the appropriate platforms to give the reviewer an
-opportunity to confirm that the changes result in a successful build. Once
-merged, the recipe will be re-built and uploaded automatically to the
-`conda-forge` channel, whereupon the built conda packages will be available for
-everybody to install and use from the `conda-forge` channel.
-Note that all branches in the conda-forge/nodejs-feedstock are
-immediately built and any created packages are uploaded, so PRs should be based
-on branches in forks, and branches in the main repository should only be used to
-build distinct package versions.
-
-In order to produce a uniquely identifiable distribution:
- * If the version of a package **is not** being increased, please add or increase
-   the [``build/number``](https://docs.conda.io/projects/conda-build/en/latest/resources/define-metadata.html#build-number-and-string).
- * If the version of a package **is** being increased, please remember to return
-   the [``build/number``](https://docs.conda.io/projects/conda-build/en/latest/resources/define-metadata.html#build-number-and-string)
-   back to 0.
-
-Feedstock Maintainers
-=====================
-
-* [@blink1073](https://github.com/blink1073/)
-* [@minrk](https://github.com/minrk/)
-* [@msarahan](https://github.com/msarahan/)
-* [@pelson](https://github.com/pelson/)
-* [@xhochy](https://github.com/xhochy/)
-* [@ytausch](https://github.com/ytausch/)
-
+V8 is **BSD-3-Clause** (`deps/v8/LICENSE.v8`, "Copyright the V8 project
+authors"); the vendored abseil is Apache-2.0. Both are reproduced in the
+package. Node itself is MIT and none of it ships here. All permissive, all
+compatible with linking into an LGPL-2.1+ application.
