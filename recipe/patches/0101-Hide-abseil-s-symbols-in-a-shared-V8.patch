@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v8-embed-feedstock <noreply@github.com>
+Date: Mon, 1 Sep 2026 00:00:00 +0000
+Subject: [PATCH] Hide abseil's symbols in a shared V8
+
+v8.gyp builds every V8 target with -fvisibility=hidden, set once in its
+target_defaults, so a shared build of V8 exports its own API and not the
+libraries vendored underneath it.  abseil.gyp is a separate .gyp file and
+inherits none of that, which leaves abseil the one part of the library
+compiled at default visibility.
+
+Measured on libv8.so.14.6.202.34 before this change: 973 exported absl::
+symbols plus the AbslInternal* C entry points, against 0 for highway and
+simdutf, which are targets inside v8.gyp.  V8's bundled zlib is unaffected
+either way because Chromium's chromeconf.h renames it to Cr_z_*.
+
+That matters for an embedder rather than for node.  A process that already
+has an abseil -- conda's libprotobuf pulls one in, and it is built for a
+different C++ standard than V8 uses -- ends up with two implementations
+under identical mangled names, and the dynamic linker binds calls to
+whichever object was loaded first.  The failure is a crash or quiet
+misbehaviour at run time, not a link error.
+
+Applies the same conditions v8.gyp's target_defaults uses, verbatim.  After
+it, the library exports v8::, cppgc::, v8_inspector:: and weak std::
+template instantiations, and nothing else.
+---
+ tools/v8_gypfiles/abseil.gyp | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/tools/v8_gypfiles/abseil.gyp b/tools/v8_gypfiles/abseil.gyp
+--- a/tools/v8_gypfiles/abseil.gyp
++++ b/tools/v8_gypfiles/abseil.gyp
+@@ -377,6 +377,22 @@
+             '<(ABSEIL_ROOT)/absl/time/internal/cctz/src/time_zone_name_win.cc',
+           ],
+         }],
++        # Same as v8.gyp's target_defaults.  This file is a separate .gyp and
++        # so does not inherit them, which leaves abseil the one part of a
++        # shared build of V8 compiled at default visibility: every absl::
++        # symbol lands in the library's dynamic symbol table, where it can be
++        # interposed with a different abseil in the same process.
++        ['OS=="mac"', {
++          'xcode_settings': {
++            'GCC_SYMBOLS_PRIVATE_EXTERN': 'YES',  # -fvisibility=hidden
++            'GCC_INLINES_ARE_PRIVATE_EXTERN': 'YES',  # -fvisibility-inlines-hidden
++          },
++        }, '(OS!="aix" and OS!="os400") and (OS!="win" or clang==1)', {
++          'cflags': [
++            '-fvisibility=hidden',
++            '-fvisibility-inlines-hidden',
++          ],
++        }],
+       ],
+     },  # abseil
+   ]

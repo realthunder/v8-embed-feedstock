@@ -28,6 +28,7 @@ source:
     - patches/0008-Explicitly-instantiate-FloatMinMaxHelper-on-RISC-V.patch
     # Ours, numbered clear of theirs.
     - patches/0100-Let-a-build-ask-gyp-for-a-shared-V8.patch
+    - patches/0101-Hide-abseil-s-symbols-in-a-shared-V8.patch
 
 build:
   number: ${{ build }}

@@ -86,8 +86,30 @@ Six of nodejs-feedstock's eight patches are carried unchanged, so a node
 bump can take their set as it stands. The two that only touch code this
 build never compiles -- system abseil, and a `stdlib.h` include for the
 `fmt` vendored under `deps/LIEF` -- are dropped rather than kept dormant.
-abseil, highway, simdutf and zlib come from node's bundled copies and are
-linked *into* the library, so the package has no runtime dependency on them.
+abseil, highway, simdutf and zlib come from node's bundled copies, and gyp
+whole-archives a shared library's static dependencies, so all four are
+linked *into* `libv8.so` and the package has no runtime dependency on any
+of them.
+
+Keeping node's bundled abseil rather than conda's is deliberate. conda's
+`libabseil` is built for C++17 and V8 compiles as C++20, and abseil's ABI
+changes with the standard level -- whether `absl::string_view` is
+`std::string_view` -- so the two are not interchangeable. It also keeps the
+package off abseil's repinning treadmill. The cost of vendoring is the
+usual one: a CVE in any of these means rebuilding `v8-embed` rather than
+updating a package.
+
+The second patch that is ours,
+`0101-Hide-abseil-s-symbols-in-a-shared-V8.patch`, is what makes that safe.
+`v8.gyp` compiles every V8 target with `-fvisibility=hidden`, set once in
+its `target_defaults`; `abseil.gyp` is a separate file and inherits none of
+it, so abseil was the one part of the library at default visibility -- 973
+exported `absl::` symbols, against 0 for highway and simdutf. A process
+that already has an abseil (conda's `libprotobuf` pulls one in) would then
+have two implementations under identical mangled names, resolved by load
+order. With the patch the library exports `v8::`, `cppgc::`,
+`v8_inspector::` and weak `std::` template instantiations, and nothing
+else.
 
 ## Using it
 
