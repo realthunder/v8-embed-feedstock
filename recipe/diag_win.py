@@ -67,16 +67,49 @@ def main():
           % (len(pre), pre.count("torque-defined-classes-tq.inc"),
              marker, pre.count("class %s :" % marker),
              marker, pre.count("class %s;" % marker)))
-    # The torque action: how long its one cmd.exe line is, and whether the
-    # source that owns the torque-defined classes is still on it.
+    # The torque action: its one command line, how the .tq sources are
+    # spelled on it, and -- the direct test -- what torque writes for the
+    # torque-defined classes when run with those exact arguments versus
+    # the same arguments with every backslash turned into a slash.
     import glob
-    for rsp_path in glob.glob(os.path.join("obj", "tools", "v8_gypfiles",
-                                           "run_torque*.rsp")):
+    import shutil
+    import tempfile
+    for rsp_path in glob.glob("*run_torque*.rsp") + glob.glob(
+            os.path.join("obj", "tools", "v8_gypfiles", "*run_torque*.rsp")):
         line = open(rsp_path).read()
-        print("diag: %s: %d chars; torque-defined-classes.tq at offset %d; "
-              "last entry: %s" % (rsp_path, len(line),
-                                  line.find("torque-defined-classes.tq"),
-                                  line.split()[-1] if line.split() else "-"))
+        toks = line.split()
+        tq = [t.strip('"') for t in toks if t.strip('"').endswith(".tq")]
+        print("diag: %s: %d chars, %d .tq args; first %s; torque-defined-classes "
+              "spelled %s" % (rsp_path, len(line), len(tq), tq[:1],
+                              [t for t in tq if "torque-defined-classes" in t]))
+        print("diag: head: " + line[:300].replace("\n", " "))
+        exe = toks[0].strip('"')
+        if not os.path.isfile(exe):
+            continue
+        for label, fix in (("as-is", lambda t: t), ("slashes", lambda t: t.replace("\\", "/"))):
+            out_dir = tempfile.mkdtemp(prefix="diag_torque_")
+            argv = [exe]
+            skip = False
+            for t in toks[1:]:
+                t = t.strip('"')
+                if skip:
+                    argv.append(out_dir)
+                    skip = False
+                    continue
+                if t == "-o":
+                    argv.append(t)
+                    skip = True
+                    continue
+                argv.append(fix(t) if t.endswith(".tq") else t)
+            p = subprocess.run(argv, cwd=os.path.join("..", "..", "tools", "v8_gypfiles"),
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               text=True, errors="replace")
+            target = os.path.join(out_dir, "src", "objects", "torque-defined-classes-tq.inc")
+            size = os.path.getsize(target) if os.path.exists(target) else -1
+            print("diag: torque re-run (%s): exit %d, torque-defined-classes-tq.inc = %d bytes%s"
+                  % (label, p.returncode, size,
+                     ("; stderr: " + p.stderr[:200]) if p.stderr.strip() else ""))
+            shutil.rmtree(out_dir, ignore_errors=True)
     gen = os.path.join("obj", "gen", "torque-generated", "src", "objects")
     if os.path.isdir(gen):
         sizes = sorted((os.path.getsize(os.path.join(gen, n)), n)
@@ -86,6 +119,14 @@ def main():
 
     inc = os.path.join("obj", "gen", "torque-generated", "src", "objects",
                        "torque-defined-classes-tq.inc")
+    # Which edge owns the file, and whether anything wrote it after torque.
+    q = subprocess.run(["ninja", "-t", "query", inc], stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, text=True, errors="replace")
+    print("diag: ninja -t query: " + " | ".join(q.stdout.split("\n")[:6]))
+    for path in (inc, os.path.join("torque.exe"),
+                 os.path.join("obj", "tools", "v8_gypfiles", "run_torque.actions_rules_copies.stamp")):
+        if os.path.exists(path):
+            print("diag: mtime %s = %.0f" % (path, os.path.getmtime(path)))
     if os.path.exists(inc):
         text = open(inc, errors="replace").read()
         print("diag: %s: %d bytes, %d lines, 'class %s :' %d times" % (
