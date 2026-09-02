@@ -118,8 +118,24 @@ configuration from the V8 code including its headers. That cost two things:
   pulls one in) would then have two implementations under identical
   mangled names, resolved by load order.
 
-With the patch the library exports `v8::`, `cppgc::`, `v8_inspector::` and
-weak `std::` template instantiations, and nothing else.
+The same thing happens a third time in `tools/icu/icu-generic.gyp`, fixed
+by `0103-Hide-the-bundled-ICU-s-symbols.patch`: with the bundled ICU
+compiled in, 9824 `icu_78::` symbols were exported. That one is worse than
+abseil's, because ICU's `icu_78` namespace guards against mixing two
+*versions* and does nothing about two copies of the *same* version -- which
+is what an embedder gets when the host already links ICU 78, as anything
+using Qt does -- and because ICU carries process-global state.
+
+With all of them the library exports `v8::`, `cppgc::`, `v8_inspector::`
+and weak `std::` template instantiations, and nothing else: 2743 symbols.
+
+**If you change what gets linked in, re-measure.** The ICU leak appeared
+only when small-icu started compiling ICU into the library:
+
+```
+nm -DC --defined-only lib/libv8.so.* | awk '{$1="";$2="";print}' \
+  | grep -oE '^[A-Za-z_][A-Za-z0-9_]*::' | sort | uniq -c | sort -rn
+```
 
 ### Why the vendored libraries are not unbundled
 
@@ -197,28 +213,36 @@ with `-DDEBUG`.
 
 ### ICU, and what "small" means
 
-Every platform builds node's bundled `small-icu` into the library, which is
-why the package has **no runtime dependencies at all** beyond libc and the
-C++ runtime. `small` trims ICU's *locale tables*, not its character data.
-Measured on a build of this recipe:
+Every platform builds node's bundled ICU into the library with
+`--with-intl=small-icu`, which is why the package has **no runtime
+dependencies at all** beyond libc and the C++ runtime. `icudt78_dat` is
+embedded in the library and `DT_NEEDED` names no ICU.
+
+**"small" here is about node's source tree, not the locale data.** node
+ships `deps/icu-small/source/data/in/icudt78l.dat.bz2`, 11.3 MB
+compressed, and uses it whole; the `icu_locales` filter is not applied to
+a prebuilt `.dat`. Measured on a build of this recipe, every one of the
+twenty locales tested is supported with real data rather than a fallback:
 
 | | |
 |---|---|
-| strings, UTF-8 at the embedder boundary, `JSON`, codepoint iteration, ordering | unaffected -- V8 strings are UTF-16 internally and none of this is ICU |
-| `'e\u0301'.normalize('NFC')`, `/\p{Script=Han}/u` | unaffected -- the Unicode character database ships in small-icu |
-| `Intl.DateTimeFormat('de')`, `Intl.NumberFormat('de')`, `localeCompare(..., 'de')` | falls back to English/root |
+| `Intl.DateTimeFormat('th' / 'hi' / 'ja')` | `มกราคม` / `जनवरी` / `1月` |
+| `Intl.NumberFormat('ar-EG')` | `١٬٢٣٤٫٥` |
+| `Intl.DisplayNames(['fr']).of('de')` | `allemand` |
+| `Collator('sv')` vs `Collator('de')` sorting `['z','ä']` | `zä` vs `äz` -- genuinely different collations |
+| `timeZoneName: 'long'` for `Asia/Tokyo` | `Japan Standard Time` |
 
-So non-ASCII text is in no way restricted; what you lose is non-English
-locale *formatting*. `V8_INTL_SUPPORT` is still defined, so the C++ ABI is
-identical to a full-ICU build either way.
+Strings are not an ICU question at all: V8 stores UTF-16 internally, and
+UTF-8 at the embedder boundary, `JSON`, codepoint iteration and ordering
+are core V8. `normalize()` and `/\p{Script=Han}/u` work too, from the
+Unicode character database. The cost of embedding the data is about 10 MB
+of library size.
 
-Two alternatives were weighed and rejected. `system-icu` works only through
-`pkg-config`, so it cannot be used on Windows at all, and it puts an `icu`
-pin on the package -- conda-forge bumps ICU roughly yearly, and because
-`run_exports` pins consumers to an exact `v8-embed`, every bump would
-cascade a rebuild into them. `full-icu` would restore the locale tables at
-roughly +30 MB, and is the thing to revisit if an embedder ever needs
-`Intl` in a language other than English.
+`system-icu` was rejected: it works only through `pkg-config`, so it cannot
+be used on Windows at all, and it puts an `icu` pin on the package --
+conda-forge bumps ICU roughly yearly, and because `run_exports` pins
+consumers to an exact `v8-embed`, every bump would cascade a rebuild into
+them.
 
 ## ABI
 

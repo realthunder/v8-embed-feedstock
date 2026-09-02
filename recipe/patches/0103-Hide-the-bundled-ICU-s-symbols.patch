@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v8-embed-feedstock <noreply@github.com>
+Date: Tue, 2 Sep 2026 00:00:00 +0000
+Subject: [PATCH] Hide the bundled ICU's symbols
+
+The third file with this problem, after abseil.  v8.gyp compiles every V8
+target with -fvisibility=hidden from its target_defaults;
+tools/icu/icu-generic.gyp is a separate .gyp and inherits none of them, so
+with --with-intl=small-icu the ICU compiled into the library exported its
+entire API.  Measured on libv8.so.14.6.202.34: 9824 icu_78:: symbols plus
+UCaseMap::, against 0 after this patch.
+
+This is worse than the abseil case was.  ICU's icu_78 namespace protects
+against mixing two different versions of ICU in one process; it does
+nothing about two copies of the same version, which is exactly what an
+embedder gets when the host already links ICU 78 -- as anything using Qt
+does.  ICU also carries process-global state, the default locale,
+converter caches and the data pointer among it, so interposition is not
+merely an ODR technicality.
+
+The flag works here because U_STATIC_IMPLEMENTATION is defined for these
+targets, which makes U_EXPORT expand to nothing; there is no explicit
+visibility attribute to override it.
+
+The conditions are v8.gyp's target_defaults ones, verbatim.  After the
+patch the library exports v8::, cppgc::, v8_inspector:: and weak std::
+template instantiations, and nothing else -- 2743 symbols in total.
+
+Not changed here, but noted: these targets are also compiled without
+NDEBUG, so ICU's assert()s are live.  That is true of node's own builds
+too and fixing it is a behaviour change this patch deliberately leaves
+alone.
+---
+ tools/icu/icu-generic.gyp | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/tools/icu/icu-generic.gyp b/tools/icu/icu-generic.gyp
+--- a/tools/icu/icu-generic.gyp
++++ b/tools/icu/icu-generic.gyp
+@@ -6,6 +6,26 @@
+ 
+ 
+ {
++  # Same as v8.gyp's target_defaults.  This file is a separate .gyp and
++  # inherits none of them, which leaves every ICU target compiled at default
++  # visibility -- so a shared build of V8 with the bundled ICU exports ICU's
++  # entire API alongside its own.  U_STATIC_IMPLEMENTATION is defined here,
++  # so U_EXPORT is empty and nothing overrides the flag.
++  'target_defaults': {
++    'conditions': [
++      ['OS=="mac"', {
++        'xcode_settings': {
++          'GCC_SYMBOLS_PRIVATE_EXTERN': 'YES',  # -fvisibility=hidden
++          'GCC_INLINES_ARE_PRIVATE_EXTERN': 'YES',  # -fvisibility-inlines-hidden
++        },
++      }, '(OS!="aix" and OS!="os400") and (OS!="win" or clang==1)', {
++        'cflags': [
++          '-fvisibility=hidden',
++          '-fvisibility-inlines-hidden',
++        ],
++      }],
++    ],
++  },
+   'variables': {
+     'icu_src_derb': [
+       '<(icu_path)/source/tools/genrb/derb.c',
