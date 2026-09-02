@@ -299,7 +299,20 @@ array in a base class, C2503. Where the clang-cl comes from is the
 Common to both: a genccode compiled by clang refuses to guess the machine
 type for the ICU data object it writes, and node's small-icu action for
 Windows never told it (node's own Windows builds are full-icu); patch 0107
-is nodejs/node#64263, which passes `-c <target_arch>`.
+is nodejs/node#64263, which passes `-c <target_arch>`. And `link.exe`
+takes from a static library only what is referenced, so a DLL linked out
+of V8's static libraries came out at 8 KB with an empty import library --
+gyp's ninja generator wraps the inputs in `--whole-archive` on Linux and
+`v8.gyp` says `-all_load` for macOS, but nothing said it for Windows.
+Patch 0108 puts `/WHOLEARCHIVE:` on the six libraries that are V8 itself.
+
+One more, ninja-only: gyp runs every Windows action as a single
+`cmd.exe /c` line, and cmd.exe reads 8191 characters of it. torque's line,
+naming some 245 `.tq` files, is about that long, and lost its last inputs
+-- among them the source that owns the torque-defined classes, so their
+definitions were never written and V8 stopped compiling at the first file
+that needed them. Patch 0109 hands a command that starts with an
+executable to `CreateProcess` directly, which takes 32K.
 
 One more thing differs on Windows, in `bld.bat`: **no SONAME.** `v8.gyp`
 turns `soname_version` into a product extension without checking the OS,

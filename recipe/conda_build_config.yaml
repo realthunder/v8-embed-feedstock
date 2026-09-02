@@ -26,10 +26,6 @@ c_stdlib_version:                                   # [linux]
 #                   recipe) with ninja, the generator every other platform uses.
 #   vs-clang-cl     the clang-cl inside Visual Studio on the CI image, through
 #                   MSBuild's ClangCL toolset -- the build node itself tests.
-#   conda-clang-cl-nopch  the same, with V8's precompiled header off --
-#                   a trial variant, to tell whether the pch is what breaks
-#                   the ninja build.
 v8_win_toolchain:                                   # [win]
   - conda-clang-cl                                  # [win]
-  - conda-clang-cl-nopch                            # [win]
   - vs-clang-cl                                     # [win]

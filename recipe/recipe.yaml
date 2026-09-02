@@ -35,6 +35,8 @@ source:
     - patches/0105-Write-pch-cflags-as-a-list-not-a-map-object.patch
     - patches/0106-Translate-LanguageStandard-for-the-ninja-generator-too.patch
     - patches/0107-Tell-genccode-the-CPU-architecture-under-clang-cl.patch
+    - patches/0108-Link-the-whole-engine-into-the-Windows-DLL.patch
+    - patches/0109-Run-a-Windows-action-s-executable-without-the-shell.patch
 
 build:
   number: ${{ build }}

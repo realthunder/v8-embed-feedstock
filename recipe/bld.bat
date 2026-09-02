@@ -82,13 +82,6 @@ set "PCH="
 if "%V8_WIN_TOOLCHAIN%"=="conda-clang-cl" (
     set "CLANG_EXE=clang.exe"
     set "GENERATOR=--ninja"
-) else if "%V8_WIN_TOOLCHAIN%"=="conda-clang-cl-nopch" (
-    set "CLANG_EXE=clang.exe"
-    set "GENERATOR=--ninja"
-    rem --use-ccache-win is consumed by exactly one thing in the tree: the
-    rem condition in v8.gyp that turns V8's precompiled header off for clang.
-    rem So it is the switch for a build without the pch, whatever its name.
-    set "PCH=--use-ccache-win"
 ) else if "%V8_WIN_TOOLCHAIN%"=="vs-clang-cl" (
     set "CLANG_EXE=%VCINSTALLDIR%\Tools\Llvm\x64\bin\clang.exe"
     set "GENERATOR="

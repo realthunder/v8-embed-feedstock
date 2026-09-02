@@ -67,6 +67,23 @@ def main():
           % (len(pre), pre.count("torque-defined-classes-tq.inc"),
              marker, pre.count("class %s :" % marker),
              marker, pre.count("class %s;" % marker)))
+    # The torque action: how long its one cmd.exe line is, and whether the
+    # source that owns the torque-defined classes is still on it.
+    import glob
+    for rsp_path in glob.glob(os.path.join("obj", "tools", "v8_gypfiles",
+                                           "run_torque*.rsp")):
+        line = open(rsp_path).read()
+        print("diag: %s: %d chars; torque-defined-classes.tq at offset %d; "
+              "last entry: %s" % (rsp_path, len(line),
+                                  line.find("torque-defined-classes.tq"),
+                                  line.split()[-1] if line.split() else "-"))
+    gen = os.path.join("obj", "gen", "torque-generated", "src", "objects")
+    if os.path.isdir(gen):
+        sizes = sorted((os.path.getsize(os.path.join(gen, n)), n)
+                       for n in os.listdir(gen))
+        print("diag: %d generated files in %s; smallest: %s" % (
+            len(sizes), gen, ", ".join("%s=%d" % (n, z) for z, n in sizes[:6])))
+
     inc = os.path.join("obj", "gen", "torque-generated", "src", "objects",
                        "torque-defined-classes-tq.inc")
     if os.path.exists(inc):

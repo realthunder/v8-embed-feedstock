@@ -30,10 +30,6 @@ jobs:
             UPLOAD_PACKAGES: False
             os: windows
             runs_on: ['windows-latest']
-          - CONFIG: win_64_v8_win_toolchainconda-clang-cl-nopch
-            UPLOAD_PACKAGES: False
-            os: windows
-            runs_on: ['windows-latest']
           - CONFIG: win_64_v8_win_toolchainvs-clang-cl
             UPLOAD_PACKAGES: False
             os: windows

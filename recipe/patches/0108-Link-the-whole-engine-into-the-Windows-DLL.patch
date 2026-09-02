@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v8-embed-feedstock <noreply@github.com>
+Date: Tue, 2 Sep 2026 00:00:00 +0000
+Subject: [PATCH] Link the whole engine into the Windows DLL
+
+A component build of V8 links one shared library out of static
+libraries, and a linker pulls out of a static library only what
+something already in the link refers to.  v8dll-main.cc refers to
+nothing, so the engine's exported API -- in objects nothing references
+-- stays out.  gyp's ninja generator handles that on Linux by itself:
+its solink rule wraps the inputs in --whole-archive.  v8.gyp handles it
+on macOS with -all_load.  On Windows nobody does, and the result is an
+8 KB v8.dll, an import library with nothing in it, and a consumer that
+fails to link every V8 symbol it uses.
+
+link.exe has the equivalent, /WHOLEARCHIVE:<library>, and it goes on the
+six libraries that make up V8 itself: the base, the compiler, the
+initializers, libbase, libplatform and the snapshot.  That is where
+every V8_EXPORT lives.  ICU, abseil, highway, zlib and simdutf are left
+to be pulled in by reference, which is all the DLL needs of them.
+---
+ tools/v8_gypfiles/v8.gyp | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/tools/v8_gypfiles/v8.gyp b/tools/v8_gypfiles/v8.gyp
+--- a/tools/v8_gypfiles/v8.gyp
++++ b/tools/v8_gypfiles/v8.gyp
+@@ -2177,6 +2177,23 @@
+                 'OTHER_LDFLAGS': ['-dynamiclib', '-all_load']
+               },
+             }],
++            ['OS=="win"', {
++              # link.exe takes from a static library only what is referenced,
++              # and nothing references the exported API.  The unix linkers get
++              # --whole-archive / -all_load for this; this is the same thing.
++              'msvs_settings': {
++                'VCLinkerTool': {
++                  'AdditionalOptions': [
++                    '/WHOLEARCHIVE:v8_base_without_compiler.lib',
++                    '/WHOLEARCHIVE:v8_compiler.lib',
++                    '/WHOLEARCHIVE:v8_initializers.lib',
++                    '/WHOLEARCHIVE:v8_libbase.lib',
++                    '/WHOLEARCHIVE:v8_libplatform.lib',
++                    '/WHOLEARCHIVE:v8_snapshot.lib',
++                  ],
++                },
++              },
++            }],
+             ['soname_version!=""', {
+               'product_extension': 'so.<(soname_version)',
+             }],
