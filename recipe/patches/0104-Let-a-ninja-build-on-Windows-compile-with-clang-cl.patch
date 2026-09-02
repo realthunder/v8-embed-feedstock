@@ -1,0 +1,90 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v8-embed-feedstock <noreply@github.com>
+Date: Tue, 2 Sep 2026 00:00:00 +0000
+Subject: [PATCH] Let a --ninja build on Windows compile with clang-cl
+
+--clang-cl is node's switch for building Windows with clang, and since
+node 24 it is the only supported compiler there: V8 dropped MSVC at 13.0
+and its headers no longer compile with cl.exe.  But the switch only sets
+the gyp variable `clang`, which the MSBuild generator turns into the
+ClangCL platform toolset -- the path vcbuild.bat takes.  gyp's ninja
+generator never reads it.  It compiles with the cl.exe on PATH unless
+make_global_settings names a CC whose path ends in "clang-cl"
+(gyp/generator/ninja.py), and nothing sets that, so `configure --ninja
+--clang-cl=...` builds with MSVC and fails in deps/v8/src/objects.
+
+Now --ninja together with --clang-cl emits that setting from the
+clang-cl found on PATH.  Absolute, because gyp joins a relative one onto
+the build directory; without ".exe", because that suffix is what gyp
+tests for.
+
+The link side needs one thing too.  clang-cl emits calls into compiler-rt
+for what the hardware lacks (128-bit division, for one), and link.exe
+does not know where that library lives.  The ClangCL toolset in MSBuild
+adds it; a ninja build links with a bare link.exe, so the builtins
+library from clang's resource directory goes into `libraries`, which gyp
+puts on every link line.
+---
+ configure.py | 43 +++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 43 insertions(+)
+
+diff --git a/configure.py b/configure.py
+--- a/configure.py
++++ b/configure.py
+@@ -1564,6 +1564,47 @@
+ # the version check more by accident than anything else but a more rigorous
+ # check involves checking the build number against an allowlist.  I'm not
+ # quite prepared to go that far yet.
++def configure_ninja_clang_cl(o):
++  """Make a --ninja build on Windows compile with clang-cl, not cl.exe.
++
++  --clang-cl sets the gyp variable `clang`, which the MSBuild generator turns
++  into the ClangCL platform toolset.  The ninja generator does not read it:
++  it compiles with the cl.exe it finds on PATH unless make_global_settings
++  names a CC whose path ends in "clang-cl" (gyp/generator/ninja.py), and
++  nothing here has ever set that.  Named that way, the path must be absolute
++  -- a relative one is joined onto the build directory -- and it must not
++  carry ".exe", because that is the suffix gyp tests for.
++  """
++  clang_cl = shutil.which('clang-cl')
++  if not clang_cl:
++    error('--clang-cl with --ninja needs clang-cl.exe on PATH')
++  clang_cl = os.path.abspath(clang_cl)
++  root, ext = os.path.splitext(clang_cl)
++  if ext.lower() == '.exe':
++    clang_cl = root
++  o['make_global_settings'] = [['CC', clang_cl], ['CXX', clang_cl]]
++
++  # clang-cl emits calls into compiler-rt for what the hardware lacks --
++  # 128-bit division, for one -- and link.exe knows nothing about where that
++  # library lives.  The ClangCL toolset in MSBuild adds it; a ninja build
++  # links with a bare link.exe, so add it here.  gyp puts `libraries` on
++  # every link line.
++  arch = 'aarch64' if options.dest_cpu == 'arm64' else 'x86_64'
++  builtins = 'clang_rt.builtins-%s.lib' % arch
++  clang = os.path.join(os.path.dirname(clang_cl), 'clang.exe')
++  try:
++    resource_dir = subprocess.check_output(
++        [clang, '-print-resource-dir'], text=True).strip()
++  except (OSError, subprocess.CalledProcessError):
++    resource_dir = ''
++  path = os.path.join(resource_dir, 'lib', 'windows', builtins)
++  if resource_dir and os.path.isfile(path):
++    o['libraries'] += [path]
++  else:
++    warn('%s not found beside %s; expect unresolved __udivti3 and the like '
++         'at link time' % (builtins, clang_cl))
++
++
+ def check_compiler(o):
+   o['variables']['use_ccache_win'] = 0
+ 
+@@ -1571,6 +1612,8 @@
+     if options.clang_cl:
+       o['variables']['clang'] = 1
+       o['variables']['llvm_version'] = options.clang_cl
++      if options.use_ninja:
++        configure_ninja_clang_cl(o)
+     else:
+       o['variables']['clang'] = 0
+       o['variables']['llvm_version'] = '0.0'

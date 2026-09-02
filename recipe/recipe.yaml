@@ -31,19 +31,32 @@ source:
     - patches/0101-Give-abseil-the-build-configuration-V8-targets-get.patch
     - patches/0102-Let-the-inspector-config-name-its-own-protocol-file.patch
     - patches/0103-Hide-the-bundled-ICU-s-symbols.patch
+    - patches/0104-Let-a-ninja-build-on-Windows-compile-with-clang-cl.patch
+    - patches/0105-Write-pch-cflags-as-a-list-not-a-map-object.patch
 
 build:
   number: ${{ build }}
   script:
-    - if: win
-      then: bld.bat
-      else: build.sh
+    file: ${{ "bld.bat" if win else "build.sh" }}
+    env:
+      # Which clang-cl, and through which generator; the values are in
+      # conda_build_config.yaml and bld.bat is where they mean something.
+      V8_WIN_TOOLCHAIN: ${{ v8_win_toolchain if win else "" }}
 
 requirements:
   build:
     - ${{ compiler('c') }}
     - ${{ compiler('cxx') }}
     - ${{ stdlib('c') }}
+    # On Windows the C/C++ compiler above is MSVC, which V8 no longer compiles
+    # with; it stays for its activation -- INCLUDE, LIB, link.exe, MSBuild --
+    # and the compiler is clang-cl.  conda-forge's clang-cl package, when the
+    # variant asks for it (compiler('clang') resolves to it on Windows); the
+    # one inside Visual Studio otherwise, which needs nothing from here.
+    - if: win and v8_win_toolchain == "conda-clang-cl"
+      then:
+        - ${{ compiler('clang') }}
+        - ${{ compiler('clangxx') }}
     # c.f. https://github.com/nodejs/node/blob/v26.6.0/pyproject.toml
     - python 3.13.*
     - ninja

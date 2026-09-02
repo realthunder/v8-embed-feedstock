@@ -265,15 +265,36 @@ Built from source on `linux-64`, `linux-aarch64`, `osx-64`, `osx-arm64` and
 does not compile anything there: its Windows source is the official binary
 zip and its build script is six `COPY` lines, and a binary zip has no V8
 static libraries to link a shared library out of. Node itself builds from
-source on Windows perfectly well, so `bld.bat` is written against that --
-the same `configure.py`, the same GYP files, MSVC instead of gcc. Nothing
-about the shared-V8 mechanism is unix-specific; `v8.gyp` carries the
-Windows half of it, and a component build is how Chromium builds V8 there.
+source on Windows, so `bld.bat` is written against that -- the same
+`configure.py`, the same GYP files. Nothing about the shared-V8 mechanism
+is unix-specific; `v8.gyp` carries the Windows half of it, and a component
+build is how Chromium builds V8 there.
 
-One thing differs on Windows, in `bld.bat`: **no SONAME.** `v8.gyp` turns
-`soname_version` into a product extension without checking the OS, which
-on Windows would name the DLL `v8.so.14.6.202.34`. A Windows consumer gets
-its version guarantee from the package pin instead. Everything else --
+**The compiler is clang-cl, not MSVC.** V8 dropped MSVC at 13.0 and node
+followed at 24 ("ClangCL is required to compile on Windows"); the headers
+no longer compile with `cl.exe` -- `FLEXIBLE_ARRAY_MEMBER` is a zero-length
+array in a base class, C2503. Where the clang-cl comes from is the
+`v8_win_toolchain` variant, and for now both are built:
+
+- `conda-clang-cl`: conda-forge's pinned `clang-cl` package layered on the
+  `vs2022` activation (which stays for INCLUDE, LIB and `link.exe`), through
+  ninja like every other platform. Two things had to be fixed for that,
+  because the ninja generator on Windows is a path node itself never runs
+  -- node's Windows build is `vcbuild.bat`, which is MSBuild. `configure.py
+  --clang-cl` only set gyp's `clang` variable, which the ninja generator
+  ignores; patch 0104 makes it emit the `make_global_settings` the
+  generator does read, and adds compiler-rt's builtins to the link. And gyp
+  wrote a Python `map` repr into the precompiled-header compile's flags
+  (nodejs/node#57633, fixed upstream in gyp-next#355 after node 26.6.0's
+  copy); patch 0105 is that fix.
+- `vs-clang-cl`: the clang-cl that ships inside Visual Studio on the CI
+  image, through MSBuild and the ClangCL platform toolset -- node's own
+  build. Unpinned, since it is whatever the runner image installed.
+
+One more thing differs on Windows, in `bld.bat`: **no SONAME.** `v8.gyp`
+turns `soname_version` into a product extension without checking the OS,
+which on Windows would name the DLL `v8.so.14.6.202.34`. A Windows consumer
+gets its version guarantee from the package pin instead. Everything else --
 the flags, the ICU mode, the install step -- is the same on all five.
 
 `win-arm64` is left out for now: a cross build of a compiler-heavy target

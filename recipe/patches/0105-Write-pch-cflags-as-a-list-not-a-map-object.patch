@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v8-embed-feedstock <noreply@github.com>
+Date: Tue, 2 Sep 2026 00:00:00 +0000
+Subject: [PATCH] Write pch cflags as a list, not a map object
+
+Backport of nodejs/gyp-next#355 (merged 2026-08-27, not in any release;
+node 26.6.0 vendors gyp-next 0.22.2).
+
+On Windows, gyp's ninja generator hands the precompiled-header compile a
+Python `map` iterator where it means a list of flags, and ninja_syntax
+writes its repr into build.ninja:
+
+  cflags_cc = <map object at 0x000002791210AB30>
+
+The three targets that use a pch (v8_base_without_compiler, v8_compiler,
+v8_initializers) therefore compile their pch source with NO C++ flags --
+no /std:c++20, no /Zc:__cplusplus, nothing -- and cl.exe reports the
+repr's tokens as "unrecognized source file type '<map'".  Node never
+sees it: its Windows builds go through MSBuild, not ninja, and the ninja
+path is nodejs/node#57633, closed as stale.
+
+Only the pch compile step is affected; every other object gets its flags
+from the target-level variable, which is a list.
+---
+ tools/gyp/pylib/gyp/msvs_emulation.py | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/tools/gyp/pylib/gyp/msvs_emulation.py b/tools/gyp/pylib/gyp/msvs_emulation.py
+--- a/tools/gyp/pylib/gyp/msvs_emulation.py
++++ b/tools/gyp/pylib/gyp/msvs_emulation.py
+@@ -1057,13 +1057,18 @@ def GetFlagsModifications(
+             pch_output = ["/Yc" + self._PchHeader()]
+             if command == "cxx":
+                 return (
+-                    [("cflags_cc", map(expand_special, cflags_cc + pch_output))],
++                    [
++                        (
++                            "cflags_cc",
++                            [expand_special(x) for x in cflags_cc + pch_output],
++                        )
++                    ],
+                     self.output_obj,
+                     [],
+                 )
+             elif command == "cc":
+                 return (
+-                    [("cflags_c", map(expand_special, cflags_c + pch_output))],
++                    [("cflags_c", [expand_special(x) for x in cflags_c + pch_output])],
+                     self.output_obj,
+                     [],
+                 )

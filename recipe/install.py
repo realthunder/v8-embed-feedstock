@@ -23,7 +23,9 @@ def library_names(target_platform, version):
         return "libv8.%s.dylib" % version, "libv8.%s.dylib" % version, "libv8.dylib"
     if target_platform.startswith("win"):
         # gyp names a Windows shared library after the target, with the import
-        # library beside it; neither carries the version.
+        # library beside it; neither carries the version.  The import library
+        # is v8.dll.lib from the ninja generator and v8.lib from MSBuild;
+        # main() accepts either and installs it as v8.lib.
         return "v8.dll", "v8.dll", "v8.lib"
     return ("libv8.so.%s" % version,) * 2 + ("libv8.so",)
 
@@ -147,9 +149,11 @@ def main():
 
     if windows:
         shutil.copyfile(src, os.path.join(bindir, installed))
-        implib = os.path.join(os.path.dirname(src), companion)
-        if not os.path.exists(implib):
-            raise SystemExit("no import library at %s" % implib)
+        implibs = [os.path.join(os.path.dirname(src), name)
+                   for name in (built + ".lib", companion)]
+        implib = next((path for path in implibs if os.path.exists(path)), None)
+        if implib is None:
+            raise SystemExit("no import library at %s" % " or ".join(implibs))
         shutil.copyfile(implib, os.path.join(libdir, companion))
     else:
         shutil.copyfile(src, os.path.join(libdir, installed))
@@ -171,13 +175,24 @@ def main():
 
     # The configuration those headers read.  Without it an embedder compiles
     # against V8's defaults and links against ours, and the two disagree about
-    # object layout without saying so.
+    # object layout without saying so.  The flags are read back from whichever
+    # build files gyp wrote: ninja's, or MSBuild's project file, which gyp
+    # puts beside the .gyp it came from.
+    ninja_file = os.path.join(args.build_dir, "obj", "tools", "v8_gypfiles",
+                              "v8_base_without_compiler.ninja")
+    vcxproj = os.path.join(args.source_dir, "tools", "v8_gypfiles",
+                           "v8_base_without_compiler.vcxproj")
+    if os.path.exists(ninja_file):
+        build_files = ["--ninja", ninja_file]
+    elif os.path.exists(vcxproj):
+        build_files = ["--vcxproj", vcxproj]
+    else:
+        raise SystemExit("neither %s nor %s exists" % (ninja_file, vcxproj))
     subprocess.check_call(
-        [sys.executable, os.path.join(HERE, "emit_v8_gn_header.py"),
-         "--ninja", os.path.join(args.build_dir, "obj", "tools", "v8_gypfiles",
-                                 "v8_base_without_compiler.ninja"),
-         "--include-dir", include_src,
-         "--out", os.path.join(incdir, "v8-gn.h")]
+        [sys.executable, os.path.join(HERE, "emit_v8_gn_header.py")]
+        + build_files
+        + ["--include-dir", include_src,
+           "--out", os.path.join(incdir, "v8-gn.h")]
     )
 
     # Build metadata, not an embedding API: the include path, the library, and

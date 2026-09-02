@@ -22,26 +22,16 @@ jobs:
       max-parallel: 50
       matrix:
         include:
-          - CONFIG: linux_64_
-            UPLOAD_PACKAGES: True
-            os: ubuntu
-            runs_on: ['ubuntu-latest']
-            DOCKER_IMAGE: quay.io/condaforge/linux-anvil-x86_64:alma10
-          - CONFIG: linux_aarch64_
-            UPLOAD_PACKAGES: True
-            os: ubuntu
-            runs_on: ['ubuntu-24.04-arm']
-            DOCKER_IMAGE: quay.io/condaforge/linux-anvil-aarch64:alma10
-          - CONFIG: osx_64_
-            UPLOAD_PACKAGES: True
-            os: macos
-            runs_on: ['macos-15-intel']
-          - CONFIG: osx_arm64_
-            UPLOAD_PACKAGES: True
-            os: macos
-            runs_on: ['macos-15-intel']
-          - CONFIG: win_64_
-            UPLOAD_PACKAGES: True
+          # TRIAL: only the two Windows toolchain variants, and no upload.
+          # The unix entries are removed by hand so this push does not
+          # re-run the linux/macOS jobs already running for the previous
+          # commit; a `conda smithy rerender` restores them.
+          - CONFIG: win_64_v8_win_toolchainconda-clang-cl
+            UPLOAD_PACKAGES: False
+            os: windows
+            runs_on: ['windows-latest']
+          - CONFIG: win_64_v8_win_toolchainvs-clang-cl
+            UPLOAD_PACKAGES: False
             os: windows
             runs_on: ['windows-latest']
     steps:

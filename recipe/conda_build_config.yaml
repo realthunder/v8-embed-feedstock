@@ -16,3 +16,16 @@ channel_targets:
 c_stdlib_version:                                   # [linux]
   - "2.28"                                          # [linux]
 
+
+# Which clang-cl builds the Windows package, and through which generator.
+# V8 stopped compiling with MSVC at 13.0 (node followed at 24), so cl.exe is
+# not a choice; where the clang-cl comes from still is.  Both are built until
+# one has proven itself, then the other goes.  See bld.bat.
+#
+#   conda-clang-cl  conda-forge's clang-cl (pinned; compiler('clang') in the
+#                   recipe) with ninja, the generator every other platform uses.
+#   vs-clang-cl     the clang-cl inside Visual Studio on the CI image, through
+#                   MSBuild's ClangCL toolset -- the build node itself tests.
+v8_win_toolchain:                                   # [win]
+  - conda-clang-cl                                  # [win]
+  - vs-clang-cl                                     # [win]

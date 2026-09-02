@@ -16,7 +16,8 @@ get wrong.
 
 Both inputs are read from the build tree rather than hard-coded, so a node
 version bump that turns pointer compression on shows up in the shipped header
-without anyone remembering to look.
+without anyone remembering to look.  The flags come from whichever files gyp
+generated: a target's .ninja file, or its MSBuild project.
 """
 
 import argparse
@@ -73,6 +74,37 @@ def defines_from_ninja(path):
     return out
 
 
+def defines_from_vcxproj(path, configuration="Release|x64"):
+    """The preprocessor definitions gyp's MSBuild generator gave one target.
+
+    gyp writes them as `A;B=1;...;%(PreprocessorDefinitions)` under the
+    ClCompile item definition of each configuration.  A name without a value
+    is `/D A`, which cl.exe and clang-cl both read as `#define A 1`, the same
+    convention as -D on the ninja side.
+    """
+    import xml.etree.ElementTree as ET
+
+    ns = {"m": "http://schemas.microsoft.com/developer/msbuild/2003"}
+    root = ET.parse(path).getroot()
+    wanted = "=='%s'" % configuration
+    for group in root.findall("m:ItemDefinitionGroup", ns):
+        condition = group.get("Condition", "").replace(" ", "")
+        if not condition.endswith(wanted):
+            continue
+        node = group.find("m:ClCompile/m:PreprocessorDefinitions", ns)
+        if node is None or not node.text:
+            continue
+        out = {}
+        for token in node.text.split(";"):
+            token = token.strip()
+            if not token or token.startswith("%("):
+                continue
+            name, sep, value = token.partition("=")
+            out[name] = value if sep else "1"
+        return out
+    raise SystemExit("no PreprocessorDefinitions for %s in %s" % (configuration, path))
+
+
 def macros_tested_by(include_dir):
     """Every identifier the public headers branch on."""
     tested = set()
@@ -81,19 +113,27 @@ def macros_tested_by(include_dir):
             if not name.endswith(".h"):
                 continue
             with open(os.path.join(root, name), errors="replace") as fh:
-                for condition in _COND.findall(fh.read()):
+                # v8config.h spreads its target-OS checks over continued
+                # lines; a condition is the whole of it, not its first line.
+                text = fh.read().replace("\\\n", " ")
+                for condition in _COND.findall(text):
                     tested.update(_IDENT.findall(condition))
     return tested - _NOT_A_CONFIG
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--ninja", required=True, help="the V8 target's .ninja file")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--ninja", help="the V8 target's .ninja file")
+    source.add_argument("--vcxproj", help="the V8 target's MSBuild project file")
     parser.add_argument("--include-dir", required=True, help="V8's public headers")
     parser.add_argument("--out", required=True, help="where to write v8-gn.h")
     args = parser.parse_args()
 
-    built = defines_from_ninja(args.ninja)
+    if args.ninja:
+        built = defines_from_ninja(args.ninja)
+    else:
+        built = defines_from_vcxproj(args.vcxproj)
     tested = macros_tested_by(args.include_dir)
 
     emitted = {}
