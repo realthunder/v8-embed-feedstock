@@ -20,6 +20,12 @@ That is where every V8_EXPORT lives.  ICU, abseil, highway, zlib and
 simdutf are left to be pulled in by reference, which is all the DLL
 needs of them.
 
+Whole-archived, libbase brings in its stack walker (dbghelp) and its
+clock (winmm), whose libraries v8.gyp declares as direct_dependent_
+settings of v8_libbase -- reaching only direct dependents, which the v8
+target is not -- so they are named here too, the list node.gyp gives
+every executable.
+
 The option takes a file, not a name: lld-link opens exactly what it is
 given ("could not open 'v8_base_without_compiler.lib'" when given the
 bare name), so the path has to be spelled the way each generator lays
@@ -30,7 +36,7 @@ ninja, relative to the build directory the link runs in.
 diff --git a/tools/v8_gypfiles/v8.gyp b/tools/v8_gypfiles/v8.gyp
 --- a/tools/v8_gypfiles/v8.gyp
 +++ b/tools/v8_gypfiles/v8.gyp
-@@ -2178,6 +2178,39 @@
+@@ -2178,6 +2178,56 @@
                  'OTHER_LDFLAGS': ['-dynamiclib', '-all_load']
                },
              }],
@@ -63,6 +69,23 @@ diff --git a/tools/v8_gypfiles/v8.gyp b/tools/v8_gypfiles/v8.gyp
 +                    '/WHOLEARCHIVE:obj\\tools\\v8_gypfiles\\v8_libbase.lib',
 +                    '/WHOLEARCHIVE:obj\\tools\\v8_gypfiles\\v8_libplatform.lib',
 +                    '/WHOLEARCHIVE:obj\\tools\\v8_gypfiles\\v8_snapshot.lib',
++                  ],
++                },
++              },
++            }],
++            ['OS=="win"', {
++              # Whole-archived, libbase brings in its stack walker and its
++              # clock, and the system libraries they need are declared as
++              # direct_dependent_settings of v8_libbase -- which reach only
++              # the targets that depend on it directly, and this one does
++              # not.  The same list node.gyp gives every executable.
++              'msvs_settings': {
++                'VCLinkerTool': {
++                  'AdditionalDependencies': [
++                    'advapi32.lib',
++                    'dbghelp.lib',
++                    'winmm.lib',
++                    'ws2_32.lib',
 +                  ],
 +                },
 +              },
