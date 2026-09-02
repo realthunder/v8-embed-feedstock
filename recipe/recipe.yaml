@@ -37,6 +37,7 @@ source:
     - patches/0107-Tell-genccode-the-CPU-architecture-under-clang-cl.patch
     - patches/0108-Link-the-whole-engine-into-the-Windows-DLL.patch
     - patches/0109-Run-a-Windows-action-s-executable-without-the-shell.patch
+    - patches/0110-torque-find-a-source-whatever-separator-it-was-named-with.patch
 
 build:
   number: ${{ build }}

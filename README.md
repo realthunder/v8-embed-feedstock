@@ -306,13 +306,18 @@ gyp's ninja generator wraps the inputs in `--whole-archive` on Linux and
 `v8.gyp` says `-all_load` for macOS, but nothing said it for Windows.
 Patch 0108 puts `/WHOLEARCHIVE:` on the six libraries that are V8 itself.
 
-One more, ninja-only: gyp runs every Windows action as a single
-`cmd.exe /c` line, and cmd.exe reads 8191 characters of it. torque's line,
-naming some 245 `.tq` files, is about that long, and lost its last inputs
--- among them the source that owns the torque-defined classes, so their
-definitions were never written and V8 stopped compiling at the first file
-that needed them. Patch 0109 hands a command that starts with an
-executable to `CreateProcess` directly, which takes 32K.
+Two more, ninja-only. gyp runs every Windows action as a single
+`cmd.exe /c` line, and cmd.exe reads 8191 characters of it; torque's
+line, naming some 245 `.tq` files, is about that long. Patch 0109 hands a
+command that starts with an executable to `CreateProcess` directly, which
+takes 32K. And gyp's ninja generator spells those `.tq` arguments with
+backslashes, while torque files the classes that have no header of their
+own under the fixed name `src/objects/torque-defined-classes.tq` by exact
+string compare -- so on the ninja route that lookup failed in silence,
+`torque-defined-classes-tq.inc` came out empty, and V8 stopped compiling
+at the first file that needed those classes. Patch 0110 makes torque
+find a source under either spelling. (MSBuild spells them with slashes,
+which is why node's own Windows build never met it.)
 
 One more thing differs on Windows, in `bld.bat`: **no SONAME.** `v8.gyp`
 turns `soname_version` into a product extension without checking the OS,

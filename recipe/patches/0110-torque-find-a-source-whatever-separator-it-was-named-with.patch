@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v8-embed-feedstock <noreply@github.com>
+Date: Tue, 2 Sep 2026 00:00:00 +0000
+Subject: [PATCH] torque: find a source whatever separator it was named with
+
+SourceFileMap stores each .tq source under the path it was given on the
+command line and looks sources up by exact string compare.  Torque
+itself performs one such lookup by a fixed name: ClassType::
+AttributedToFile files every class without a hand-written header under
+"src/objects/torque-defined-classes.tq".
+
+gyp's ninja generator on Windows passes the sources as
+src\objects\torque-defined-classes.tq.  The lookup fails, silently: the
+classes are attributed to an invalid source, their definitions are
+written nowhere, torque-defined-classes-tq.inc comes out empty (the
+source itself defines nothing), instance-types.h still lists them, and
+the first translation unit to include objects-body-descriptors-inl.h
+fails with "incomplete type 'StrongDescriptorArray' named in nested
+name specifier".  MSBuild spells the arguments with slashes, which is
+why node's own Windows build never sees it.
+
+Both sides now normalise to forward slashes, so a source is found under
+either spelling.  The stored path is also what names the outputs, so
+they come out with slashes regardless, as they do on every other
+platform.
+---
+ deps/v8/src/torque/source-positions.cc | 21 +++++++++++++++++++--
+ 1 file changed, 19 insertions(+), 2 deletions(-)
+
+diff --git a/deps/v8/src/torque/source-positions.cc b/deps/v8/src/torque/source-positions.cc
+--- a/deps/v8/src/torque/source-positions.cc
++++ b/deps/v8/src/torque/source-positions.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "src/torque/source-positions.h"
+ 
++#include <algorithm>
+ #include <fstream>
+ #include "src/torque/utils.h"
+ 
+@@ -37,16 +38,31 @@
+   return path_from_root;
+ }
+ 
++namespace {
++
++// Sources are looked up by the path they were named by, so a path has one
++// spelling here whatever separator the build system used: torque itself
++// asks for "src/objects/torque-defined-classes.tq" when it files the
++// classes that have no header of their own, and a build that passed the
++// same file as src\objects\torque-defined-classes.tq must find it.
++std::string WithForwardSlashes(std::string path) {
++  std::replace(path.begin(), path.end(), '\\', '/');
++  return path;
++}
++
++}  // namespace
++
+ // static
+ SourceId SourceFileMap::AddSource(std::string path) {
+-  Get().sources_.push_back(std::move(path));
++  Get().sources_.push_back(WithForwardSlashes(std::move(path)));
+   return SourceId(static_cast<int>(Get().sources_.size()) - 1);
+ }
+ 
+ // static
+ SourceId SourceFileMap::GetSourceId(const std::string& path) {
++  const std::string wanted = WithForwardSlashes(path);
+   for (size_t i = 0; i < Get().sources_.size(); ++i) {
+-    if (Get().sources_[i] == path) {
++    if (Get().sources_[i] == wanted) {
+       return SourceId(static_cast<int>(i));
+     }
+   }

@@ -93,8 +93,14 @@ def main():
         exe = toks[0].strip('"')
         if not os.path.isfile(exe):
             continue
+        real_out = os.path.join("obj", "gen", "torque-generated")
         for label, fix in (("as-is", lambda t: t), ("slashes", lambda t: t.replace("\\", "/"))):
             out_dir = tempfile.mkdtemp(prefix="diag_torque_")
+            # torque does not create output directories; ninja pre-creates
+            # the ones it declares.  Mirror the real tree's directories.
+            for root, dirs, _ in os.walk(real_out):
+                for d in dirs:
+                    os.makedirs(os.path.join(out_dir, os.path.relpath(os.path.join(root, d), real_out)), exist_ok=True)
             argv = [exe]
             skip = False
             for t in toks[1:]:
