@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v8-embed-feedstock <noreply@github.com>
+Date: Tue, 2 Sep 2026 00:00:00 +0000
+Subject: [PATCH] Let the inspector config name its own protocol file
+
+On Windows the inspector protocol generator dies before generating
+anything:
+
+  File "deps/v8/third_party/inspector_protocol/code_generator.py",
+    line 373, in __init__
+      self.generate_domains = self.read_protocol_file(config.protocol.path)
+  AttributeError: 'X' object has no attribute 'path'
+
+inspector_protocol_config.json has no "path" key.  config.protocol.path
+exists only because v8.gyp passes it on the command line:
+
+  '--config_value', 'protocol.path=<(v8_inspector_js_protocol)',
+
+and on Windows that value does not take effect.  The command is not
+truncated: --inspector_protocol_dir, a required argument that comes after
+--config_value in the action, was accepted, or argparse would have failed
+long before line 373.  So the value arrives but does not parse -- and the
+generator discards a config value it cannot split cleanly without saying
+so:
+
+  parts = key_value.split("=")   # splits on every '='
+  if len(parts) == 2:            # anything else: dropped, no error
+
+Rather than depend on an argument a build system can mangle, the config
+file names its own protocol file.  The two resolve to the same path -- the
+JSON value is joined with the config file's directory by
+code_generator.py's json_object_hook, so ../../include/js_protocol.pdl
+from deps/v8/src/inspector is deps/v8/include/js_protocol.pdl, which is
+what <(v8_inspector_js_protocol) expands to -- so nothing changes on the
+platforms where the argument does work: there the command-line value
+overrides the identical JSON one.
+---
+ deps/v8/src/inspector/inspector_protocol_config.json | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/deps/v8/src/inspector/inspector_protocol_config.json b/deps/v8/src/inspector/inspector_protocol_config.json
+--- a/deps/v8/src/inspector/inspector_protocol_config.json
++++ b/deps/v8/src/inspector/inspector_protocol_config.json
+@@ -1,5 +1,6 @@
+ {
+     "protocol": {
++        "path": "../../include/js_protocol.pdl",
+         "package": "src/inspector/protocol",
+         "output": "protocol",
+         "namespace": ["v8_inspector", "protocol"],

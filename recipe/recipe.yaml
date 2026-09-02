@@ -29,6 +29,7 @@ source:
     # Ours, numbered clear of theirs.
     - patches/0100-Let-a-build-ask-gyp-for-a-shared-V8.patch
     - patches/0101-Give-abseil-the-build-configuration-V8-targets-get.patch
+    - patches/0102-Let-the-inspector-config-name-its-own-protocol-file.patch
 
 build:
   number: ${{ build }}
