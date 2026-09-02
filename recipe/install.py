@@ -18,16 +18,23 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def library_names(target_platform, version):
-    """(built name, installed name, the symlink or import library beside it)."""
+    """(built names, installed name, the symlink or import library beside it).
+
+    The built name is a list of candidates: gyp turns soname_version into a
+    product extension without looking at the OS, so with it set the library
+    is libv8.so.<version> on macOS as well; without it, plain libv8.dylib.
+    Either is installed under the name macOS expects.
+    """
     if target_platform.startswith("osx"):
-        return "libv8.%s.dylib" % version, "libv8.%s.dylib" % version, "libv8.dylib"
+        return (["libv8.so.%s" % version, "libv8.%s.dylib" % version, "libv8.dylib"],
+                "libv8.%s.dylib" % version, "libv8.dylib")
     if target_platform.startswith("win"):
         # gyp names a Windows shared library after the target, with the import
         # library beside it; neither carries the version.  The import library
         # is v8.dll.lib from the ninja generator and v8.lib from MSBuild;
         # main() accepts either and installs it as v8.lib.
-        return "v8.dll", "v8.dll", "v8.lib"
-    return ("libv8.so.%s" % version,) * 2 + ("libv8.so",)
+        return ["v8.dll"], "v8.dll", "v8.lib"
+    return ["libv8.so.%s" % version], "libv8.so.%s" % version, "libv8.so"
 
 
 def install_headers(include_src, include_dst):
@@ -135,17 +142,18 @@ def main():
     for directory in (libdir, incdir) + ((bindir,) if windows else ()):
         os.makedirs(directory, exist_ok=True)
 
-    built, installed, companion = library_names(args.target_platform, args.version)
+    built_names, installed, companion = library_names(args.target_platform, args.version)
 
     # gyp puts a shared library under out/Release/lib on unix and beside the
     # other outputs on Windows.
     candidates = [
-        os.path.join(args.build_dir, "lib", built),
-        os.path.join(args.build_dir, built),
+        os.path.join(args.build_dir, sub, built)
+        for built in built_names for sub in ("lib", "")
     ]
     src = next((path for path in candidates if os.path.exists(path)), None)
     if src is None:
-        raise SystemExit("no %s in %s" % (built, " or ".join(candidates)))
+        raise SystemExit("no library at %s" % " or ".join(candidates))
+    built = os.path.basename(src)
 
     if windows:
         shutil.copyfile(src, os.path.join(bindir, installed))
