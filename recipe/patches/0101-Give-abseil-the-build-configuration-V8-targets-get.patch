@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v8-embed-feedstock <noreply@github.com>
+Date: Mon, 1 Sep 2026 00:00:00 +0000
+Subject: [PATCH] Give abseil the build configuration V8 targets get
+
+v8.gyp opens with
+
+  'includes': ['toolchain.gypi', 'features.gypi'],
+
+and a target_defaults that compiles every V8 target with
+-fvisibility=hidden.  abseil.gyp includes only toolchain.gypi and inherits
+neither, so abseil alone is built with a different configuration from the
+V8 code that includes its headers.  Two consequences, both real:
+
+1. NDEBUG.  It is decided in features.gypi, which abseil.gyp does not
+   include, so abseil was compiled without it while every V8 target had it.
+   abseil's mutex.h puts Mutex::Dtor inline under NDEBUG and out of line in
+   mutex.cc without it, so the symbol was defined twice -- once as a COMDAT
+   from v8_libbase, once strongly from abseil:
+
+     abseil.lib(abseil.mutex.obj) : error LNK2005:
+       "private: void __cdecl absl::Mutex::Dtor(void)" already defined in
+       v8_libbase.lib(v8_libbase.mutex.obj)
+
+   MSVC rejects that outright.  ELF links it anyway, which is worse: the
+   ODR violation is silently present in every unix build, with V8's mutexes
+   getting the empty inline destructor while abseil's own callers get the
+   out-of-line one.
+
+2. Visibility.  Without the target_defaults, abseil was the one part of a
+   shared build of V8 compiled at default visibility: 973 exported absl::
+   symbols plus the AbslInternal* C entry points, measured on
+   libv8.so.14.6.202.34, against 0 for highway and simdutf, which are
+   targets inside v8.gyp.  V8's bundled zlib was never at risk because
+   Chromium's chromeconf.h renames it to Cr_z_*.
+
+   That matters for an embedder rather than for node.  A process that
+   already has an abseil -- conda's libprotobuf pulls one in, built for a
+   different C++ standard than V8 uses -- ends up with two implementations
+   under identical mangled names, and the dynamic linker binds calls to
+   whichever object was loaded first.  The failure is a crash or quiet
+   misbehaviour at run time, not a link error.
+
+Including features.gypi fixes the first by construction rather than by
+copying a snippet that can drift, and keeps the DEBUG/NDEBUG choice correct
+if dcheck_always_on is ever turned on.  The visibility conditions are
+v8.gyp's target_defaults ones, verbatim.
+
+After both, the library exports v8::, cppgc::, v8_inspector:: and weak
+std:: template instantiations, and nothing else.
+---
+ tools/v8_gypfiles/abseil.gyp | 24 +++++++++++++++++++++++-
+ 1 file changed, 23 insertions(+), 1 deletion(-)
+
+diff --git a/tools/v8_gypfiles/abseil.gyp b/tools/v8_gypfiles/abseil.gyp
+--- a/tools/v8_gypfiles/abseil.gyp
++++ b/tools/v8_gypfiles/abseil.gyp
+@@ -1,5 +1,10 @@
+ {
+-  'includes': ['toolchain.gypi'],
++  # features.gypi as well as toolchain.gypi, exactly as v8.gyp includes
++  # them.  It is where NDEBUG is decided, and abseil's mutex.h puts
++  # Mutex::Dtor inline under NDEBUG and out of line in mutex.cc without
++  # it -- so building abseil with a different answer than the V8 targets
++  # that include its headers defines the symbol twice.
++  'includes': ['toolchain.gypi', 'features.gypi'],
+   'targets': [
+     {
+       'target_name': 'abseil',
+@@ -377,6 +382,22 @@
+             '<(ABSEIL_ROOT)/absl/time/internal/cctz/src/time_zone_name_win.cc',
+           ],
+         }],
++        # Same as v8.gyp's target_defaults.  This file is a separate .gyp and
++        # so does not inherit them, which leaves abseil the one part of a
++        # shared build of V8 compiled at default visibility: every absl::
++        # symbol lands in the library's dynamic symbol table, where it can be
++        # interposed with a different abseil in the same process.
++        ['OS=="mac"', {
++          'xcode_settings': {
++            'GCC_SYMBOLS_PRIVATE_EXTERN': 'YES',  # -fvisibility=hidden
++            'GCC_INLINES_ARE_PRIVATE_EXTERN': 'YES',  # -fvisibility-inlines-hidden
++          },
++        }, '(OS!="aix" and OS!="os400") and (OS!="win" or clang==1)', {
++          'cflags': [
++            '-fvisibility=hidden',
++            '-fvisibility-inlines-hidden',
++          ],
++        }],
+       ],
+     },  # abseil
+   ]

@@ -100,16 +100,26 @@ usual one: a CVE in any of these means rebuilding `v8-embed` rather than
 updating a package.
 
 The second patch that is ours,
-`0101-Hide-abseil-s-symbols-in-a-shared-V8.patch`, is what makes that safe.
-`v8.gyp` compiles every V8 target with `-fvisibility=hidden`, set once in
-its `target_defaults`; `abseil.gyp` is a separate file and inherits none of
-it, so abseil was the one part of the library at default visibility -- 973
-exported `absl::` symbols, against 0 for highway and simdutf. A process
-that already has an abseil (conda's `libprotobuf` pulls one in) would then
-have two implementations under identical mangled names, resolved by load
-order. With the patch the library exports `v8::`, `cppgc::`,
-`v8_inspector::` and weak `std::` template instantiations, and nothing
-else.
+`0101-Give-abseil-the-build-configuration-V8-targets-get.patch`, is what
+makes that safe. `v8.gyp` opens with `'includes': ['toolchain.gypi',
+'features.gypi']` and a `target_defaults` that compiles every V8 target
+with `-fvisibility=hidden`. `abseil.gyp` includes only `toolchain.gypi`
+and inherits neither, so abseil alone was built with a different
+configuration from the V8 code including its headers. That cost two things:
+
+- **`NDEBUG`**, which lives in `features.gypi`. abseil's `mutex.h` puts
+  `Mutex::Dtor` inline under `NDEBUG` and out of line in `mutex.cc`
+  without it, so the symbol was defined twice. MSVC rejects that
+  (`LNK2005`); ELF links it anyway, which is worse -- the ODR violation
+  was silently present in every unix build.
+- **Visibility.** abseil was the one part of the library at default
+  visibility: 973 exported `absl::` symbols, against 0 for highway and
+  simdutf. A process that already has an abseil (conda's `libprotobuf`
+  pulls one in) would then have two implementations under identical
+  mangled names, resolved by load order.
+
+With the patch the library exports `v8::`, `cppgc::`, `v8_inspector::` and
+weak `std::` template instantiations, and nothing else.
 
 ### Why the vendored libraries are not unbundled
 
