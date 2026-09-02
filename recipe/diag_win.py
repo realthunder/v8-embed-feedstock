@@ -74,9 +74,16 @@ def main():
     import glob
     import shutil
     import tempfile
-    for rsp_path in glob.glob("*run_torque*.rsp") + glob.glob(
-            os.path.join("obj", "tools", "v8_gypfiles", "*run_torque*.rsp")):
-        line = open(rsp_path).read()
+    # ninja deletes an action's response file once the edge succeeds, so
+    # the command is read back from the rspfile_content gyp wrote into
+    # the target's .ninja file ($-continued lines, "$ " escapes spaces).
+    lines = []
+    ninja_path = os.path.join("obj", "tools", "v8_gypfiles", "run_torque.ninja")
+    if os.path.exists(ninja_path):
+        text = open(ninja_path, errors="replace").read()
+        for m in re.finditer(r"rspfile_content = (.*?)(?<!\$)\n", text, re.S):
+            lines.append(m.group(1).replace("$\n", "").replace("$ ", " "))
+    for rsp_path, line in [("run_torque.ninja#%d" % i, l) for i, l in enumerate(lines)]:
         toks = line.split()
         tq = [t.strip('"') for t in toks if t.strip('"').endswith(".tq")]
         print("diag: %s: %d chars, %d .tq args; first %s; torque-defined-classes "

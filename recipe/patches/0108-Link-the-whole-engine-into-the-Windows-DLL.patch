@@ -13,35 +13,56 @@ on macOS with -all_load.  On Windows nobody does, and the result is an
 8 KB v8.dll, an import library with nothing in it, and a consumer that
 fails to link every V8 symbol it uses.
 
-link.exe has the equivalent, /WHOLEARCHIVE:<library>, and it goes on the
-six libraries that make up V8 itself: the base, the compiler, the
-initializers, libbase, libplatform and the snapshot.  That is where
-every V8_EXPORT lives.  ICU, abseil, highway, zlib and simdutf are left
-to be pulled in by reference, which is all the DLL needs of them.
+link.exe and lld-link have the equivalent, /WHOLEARCHIVE:<library>, and
+it goes on the six libraries that make up V8 itself: the base, the
+compiler, the initializers, libbase, libplatform and the snapshot.
+That is where every V8_EXPORT lives.  ICU, abseil, highway, zlib and
+simdutf are left to be pulled in by reference, which is all the DLL
+needs of them.
+
+The option takes a file, not a name: lld-link opens exactly what it is
+given ("could not open 'v8_base_without_compiler.lib'" when given the
+bare name), so the path has to be spelled the way each generator lays
+the libraries out -- $(OutDir)lib\ under MSBuild, obj\<gyp dir>\ under
+ninja, relative to the build directory the link runs in.
 ---
- tools/v8_gypfiles/v8.gyp | 17 +++++++++++++++++
- 1 file changed, 17 insertions(+)
 
 diff --git a/tools/v8_gypfiles/v8.gyp b/tools/v8_gypfiles/v8.gyp
 --- a/tools/v8_gypfiles/v8.gyp
 +++ b/tools/v8_gypfiles/v8.gyp
-@@ -2177,6 +2177,23 @@
+@@ -2178,6 +2178,39 @@
                  'OTHER_LDFLAGS': ['-dynamiclib', '-all_load']
                },
              }],
-+            ['OS=="win"', {
-+              # link.exe takes from a static library only what is referenced,
-+              # and nothing references the exported API.  The unix linkers get
-+              # --whole-archive / -all_load for this; this is the same thing.
++            # link.exe takes from a static library only what is referenced,
++            # and nothing references the exported API.  The unix linkers get
++            # --whole-archive / -all_load for this; this is the same thing.
++            # /WHOLEARCHIVE wants a file it can open, and the two generators
++            # put static libraries in different places.
++            ['OS=="win" and GENERATOR=="msvs"', {
 +              'msvs_settings': {
 +                'VCLinkerTool': {
 +                  'AdditionalOptions': [
-+                    '/WHOLEARCHIVE:v8_base_without_compiler.lib',
-+                    '/WHOLEARCHIVE:v8_compiler.lib',
-+                    '/WHOLEARCHIVE:v8_initializers.lib',
-+                    '/WHOLEARCHIVE:v8_libbase.lib',
-+                    '/WHOLEARCHIVE:v8_libplatform.lib',
-+                    '/WHOLEARCHIVE:v8_snapshot.lib',
++                    '/WHOLEARCHIVE:$(OutDir)lib\\v8_base_without_compiler.lib',
++                    '/WHOLEARCHIVE:$(OutDir)lib\\v8_compiler.lib',
++                    '/WHOLEARCHIVE:$(OutDir)lib\\v8_initializers.lib',
++                    '/WHOLEARCHIVE:$(OutDir)lib\\v8_libbase.lib',
++                    '/WHOLEARCHIVE:$(OutDir)lib\\v8_libplatform.lib',
++                    '/WHOLEARCHIVE:$(OutDir)lib\\v8_snapshot.lib',
++                  ],
++                },
++              },
++            }],
++            ['OS=="win" and GENERATOR=="ninja"', {
++              'msvs_settings': {
++                'VCLinkerTool': {
++                  'AdditionalOptions': [
++                    '/WHOLEARCHIVE:obj\\tools\\v8_gypfiles\\v8_base_without_compiler.lib',
++                    '/WHOLEARCHIVE:obj\\tools\\v8_gypfiles\\v8_compiler.lib',
++                    '/WHOLEARCHIVE:obj\\tools\\v8_gypfiles\\v8_initializers.lib',
++                    '/WHOLEARCHIVE:obj\\tools\\v8_gypfiles\\v8_libbase.lib',
++                    '/WHOLEARCHIVE:obj\\tools\\v8_gypfiles\\v8_libplatform.lib',
++                    '/WHOLEARCHIVE:obj\\tools\\v8_gypfiles\\v8_snapshot.lib',
 +                  ],
 +                },
 +              },
