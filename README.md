@@ -286,10 +286,20 @@ array in a base class, C2503. Where the clang-cl comes from is the
   generator does read, and adds compiler-rt's builtins to the link. And gyp
   wrote a Python `map` repr into the precompiled-header compile's flags
   (nodejs/node#57633, fixed upstream in gyp-next#355 after node 26.6.0's
-  copy); patch 0105 is that fix.
+  copy); patch 0105 is that fix. And gyp's ninja emulation had no
+  translation for the MSBuild `LanguageStandard` property, the only place
+  common.gypi puts the C++ standard when the compiler is clang, so a ninja
+  build compiled with no `/std:` at all; patch 0106 adds it. `bld.bat` also
+  strips the `/std:c++17` conda's clang-cl activation exports, which gyp's
+  ninja generator would otherwise append after V8's own flag.
 - `vs-clang-cl`: the clang-cl that ships inside Visual Studio on the CI
   image, through MSBuild and the ClangCL platform toolset -- node's own
   build. Unpinned, since it is whatever the runner image installed.
+
+Common to both: a genccode compiled by clang refuses to guess the machine
+type for the ICU data object it writes, and node's small-icu action for
+Windows never told it (node's own Windows builds are full-icu); patch 0107
+is nodejs/node#64263, which passes `-c <target_arch>`.
 
 One more thing differs on Windows, in `bld.bat`: **no SONAME.** `v8.gyp`
 turns `soname_version` into a product extension without checking the OS,

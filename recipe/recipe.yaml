@@ -33,6 +33,8 @@ source:
     - patches/0103-Hide-the-bundled-ICU-s-symbols.patch
     - patches/0104-Let-a-ninja-build-on-Windows-compile-with-clang-cl.patch
     - patches/0105-Write-pch-cflags-as-a-list-not-a-map-object.patch
+    - patches/0106-Translate-LanguageStandard-for-the-ninja-generator-too.patch
+    - patches/0107-Tell-genccode-the-CPU-architecture-under-clang-cl.patch
 
 build:
   number: ${{ build }}

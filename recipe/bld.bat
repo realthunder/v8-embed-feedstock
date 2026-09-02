@@ -32,6 +32,20 @@ if "%V8_WIN_TOOLCHAIN%"=="" (
     exit 1
 )
 
+:: gyp's ninja generator appends CFLAGS, CXXFLAGS and LDFLAGS from the
+:: environment to its own, after them.  conda's clang-cl activation puts
+:: /std:c++17 in CXXFLAGS, which then outranks the /std:c++20 V8 needs (the
+:: same conflict build.sh strips -std= for), plus -fuse-ld=lld, which is a
+:: link option and only draws an unused-argument warning on a compile line.
+:: Its LDFLAGS is `-Xlinker /DEFAULTLIB:<compiler-rt builtins>` in the
+:: clang driver's syntax; the link here is a bare link.exe, which does not
+:: know -Xlinker, and patches/0104 already puts that library on the link
+:: line in a form it does know.  So: those flags go, the rest stay.
+for /f "usebackq delims=" %%i in (`python -c "import os; [print(v + '=' + ' '.join(t for t in os.environ.get(v, '').split() if not t.startswith(('/std:', '-std', '-fuse-ld=')))) for v in ('CFLAGS', 'CXXFLAGS')]"`) do set "%%i"
+set "LDFLAGS="
+echo CFLAGS=%CFLAGS%
+echo CXXFLAGS=%CXXFLAGS%
+
 :: What makes the `v8` target a shared library rather than an empty aggregate;
 :: see patches/0100-Let-a-build-ask-gyp-for-a-shared-V8.patch.
 set "NODE_GYP_COMPONENT=shared_library"

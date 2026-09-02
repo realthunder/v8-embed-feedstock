@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v8-embed-feedstock <noreply@github.com>
+Date: Tue, 2 Sep 2026 00:00:00 +0000
+Subject: [PATCH] Tell genccode the CPU architecture under clang-cl
+
+Backport of nodejs/node#64263 ("build: fix Windows small-icu build with
+ClangCL"), which is not in 26.6.0.
+
+ICU's genccode writes the data file straight to a COFF object on
+Windows, and when it was itself compiled by clang it refuses to guess
+the machine type from its own predefined macros -- the tool runs on the
+host and may be producing an object for another architecture -- so it
+insists on -c <arch>:
+
+  genccode: CPU architecture must be set for Clang-CL
+
+The small-icu action for Windows did not pass one.  node's own Windows
+builds are full-icu, which takes a different path, so the small-icu
+build was broken there from the moment clang-cl became the compiler.
+---
+ tools/icu/icu-generic.gyp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/tools/icu/icu-generic.gyp b/tools/icu/icu-generic.gyp
+--- a/tools/icu/icu-generic.gyp
++++ b/tools/icu/icu-generic.gyp
+@@ -228,6 +228,7 @@
+                   'outputs': [ '<(SHARED_INTERMEDIATE_DIR)/icudt<(icu_ver_major)<(icu_endianness)_dat.<(icu_asm_ext)' ],
+                   'action': [ '<(PRODUCT_DIR)/genccode<(EXECUTABLE_SUFFIX)',
+                               '<@(icu_asm_opts)', # -o
++                              '-c', '<(target_arch)',
+                               '-d', '<(SHARED_INTERMEDIATE_DIR)/',
+                               '-n', 'icudata',
+                               '-e', 'icusmdt<(icu_ver_major)',

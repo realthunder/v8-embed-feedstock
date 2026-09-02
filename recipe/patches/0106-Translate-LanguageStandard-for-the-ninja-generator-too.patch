@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v8-embed-feedstock <noreply@github.com>
+Date: Tue, 2 Sep 2026 00:00:00 +0000
+Subject: [PATCH] Translate LanguageStandard for the ninja generator too
+
+common.gypi selects the C++ standard two ways, and which one depends on
+the compiler: with clang it sets the MSBuild property LanguageStandard
+(stdcpp20) and LanguageStandard_C (stdc11); with MSVC it puts -std:c++20
+in AdditionalOptions, under a TODO to use LanguageStandard everywhere
+once node-gyp understands it.
+
+gyp's ninja generator does not understand it.  MSVSSettings.py lists
+LanguageStandard as _MSBuildOnly, and msvs_emulation.py, which turns the
+VCCLCompilerTool settings into cl.exe flags for ninja, has no case for
+it, so a ninja build with clang=1 compiles with no /std: at all and V8
+stops at v8config.h: "C++20 or later required."  Node never sees this:
+its clang-cl builds go through MSBuild (vcbuild.bat), where the property
+means what it says.
+
+GetCflagsCC and GetCflagsC now emit /std: from those two settings -- the
+same per-language split MSBuild gives them, which matters because a
+-std:c++20 in AdditionalOptions reaches C files too, and clang-cl, unlike
+cl.exe, refuses -std=c++20 for C.  Default, or no setting, adds nothing.
+---
+ tools/gyp/pylib/gyp/msvs_emulation.py | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/tools/gyp/pylib/gyp/msvs_emulation.py b/tools/gyp/pylib/gyp/msvs_emulation.py
+--- a/tools/gyp/pylib/gyp/msvs_emulation.py
++++ b/tools/gyp/pylib/gyp/msvs_emulation.py
+@@ -562,15 +562,30 @@
+                 return ["/Yu" + pch, "/FI" + pch, "/Fp${pchprefix}." + pchbase + ".pch"]
+         return []
+ 
++    def _GetLanguageStandardFlags(self, config, setting):
++        """The /std: flag for an MSBuild LanguageStandard / LanguageStandard_C
++        setting: stdcpp20 -> /std:c++20, stdcpplatest -> /std:c++latest,
++        stdc11 -> /std:c11.  Default, or no setting, adds nothing."""
++        standard = self._Setting(("VCCLCompilerTool", setting), config)
++        if not standard or standard == "Default":
++            return []
++        return ["/std:" + standard[len("std"):].replace("cpp", "c++", 1)]
++
+     def GetCflagsC(self, config):
+         """Returns the flags that need to be added to .c compilations."""
+         config = self._TargetConfig(config)
+-        return self._GetPchFlags(config, ".c")
++        return self._GetLanguageStandardFlags(
++            config, "LanguageStandard_C"
++        ) + self._GetPchFlags(config, ".c")
+ 
+     def GetCflagsCC(self, config):
+         """Returns the flags that need to be added to .cc compilations."""
+         config = self._TargetConfig(config)
+-        return ["/TP"] + self._GetPchFlags(config, ".cc")
++        return (
++            ["/TP"]
++            + self._GetLanguageStandardFlags(config, "LanguageStandard")
++            + self._GetPchFlags(config, ".cc")
++        )
+ 
+     def _GetAdditionalLibraryDirectories(self, root, config, gyp_to_build_path):
+         """Get and normalize the list of paths in AdditionalLibraryDirectories

@@ -13,6 +13,11 @@ message(STATUS "v8-embed ${V8_EMBED_VERSION}: ${V8_EMBED_LIBRARY}")
 
 add_executable(consumer consumer.cc)
 target_link_libraries(consumer PRIVATE v8-embed::v8)
+if(MSVC)
+  # v8config.h tests __cplusplus, which cl.exe reports as 199711L whatever
+  # /std: says unless told to be honest about it.  clang-cl takes the flag too.
+  target_compile_options(consumer PRIVATE /Zc:__cplusplus)
+endif()
 
 enable_testing()
 add_test(NAME consumer COMMAND consumer)
