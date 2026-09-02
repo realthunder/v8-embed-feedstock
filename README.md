@@ -317,7 +317,12 @@ string compare -- so on the ninja route that lookup failed in silence,
 `torque-defined-classes-tq.inc` came out empty, and V8 stopped compiling
 at the first file that needed those classes. Patch 0110 makes torque
 find a source under either spelling. (MSBuild spells them with slashes,
-which is why node's own Windows build never met it.)
+which is why node's own Windows build never met it.) And with clang,
+mksnapshot writes the embedded builtins in GNU assembler syntax, which
+`v8.gyp` already turns into inline assembly in a C++ file -- but the `.S`
+stayed a source of the target, and gyp's ninja generator hands every `.S`
+to ml64, where MSBuild had merely ignored it. Patch 0111 keeps it out of
+the compiled sources on that configuration.
 
 One more thing differs on Windows, in `bld.bat`: **no SONAME.** `v8.gyp`
 turns `soname_version` into a product extension without checking the OS,

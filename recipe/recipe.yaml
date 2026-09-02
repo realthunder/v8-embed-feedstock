@@ -38,6 +38,7 @@ source:
     - patches/0108-Link-the-whole-engine-into-the-Windows-DLL.patch
     - patches/0109-Run-a-Windows-action-s-executable-without-the-shell.patch
     - patches/0110-torque-find-a-source-whatever-separator-it-was-named-with.patch
+    - patches/0111-Do-not-assemble-the-embedded-blob-that-becomes-inline-asm.patch
 
 build:
   number: ${{ build }}

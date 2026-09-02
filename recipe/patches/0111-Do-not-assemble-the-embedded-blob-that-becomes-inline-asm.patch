@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v8-embed-feedstock <noreply@github.com>
+Date: Tue, 2 Sep 2026 00:00:00 +0000
+Subject: [PATCH] Do not assemble the embedded blob that becomes inline asm
+
+With clang on Windows, mksnapshot writes the embedded builtins as
+embedded.S in GNU assembler syntax (platform-embedded-file-writer-win.cc
+picks MASM only for a compiler that is MSVC and not clang), and v8.gyp
+already knows: under OS=="win" and clang==1 an action runs
+asm_to_inline_asm.py over it and compiles the resulting embedded.cc.
+
+But run_mksnapshot also marks its outputs process_outputs_as_sources, so
+embedded.S stays a source of v8_snapshot, and gyp's ninja generator hands
+every .S it sees on Windows to ml64:
+
+  embedded.S(1) : error A2008:syntax error : /
+  ...
+  fatal error A1012:error count exceeds 100; stopping assembly
+
+MSBuild never noticed because gyp's msvs generator files the .S as a
+custom-build item with no tool, so it sits there inert.  The generators
+add those outputs to the sources themselves, after the sources! exclusion
+has been processed, so an exclusion cannot take it back out.  Instead the
+sources are listed explicitly: snapshot.cc always, embedded.S everywhere
+except the configuration that turns it into inline assembly.
+---
+ tools/v8_gypfiles/v8.gyp | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/tools/v8_gypfiles/v8.gyp b/tools/v8_gypfiles/v8.gyp
+--- a/tools/v8_gypfiles/v8.gyp
++++ b/tools/v8_gypfiles/v8.gyp
+@@ -385,6 +385,11 @@
+       'toolsets': ['target'],
+       'sources': [
+         '<(V8_ROOT)/src/init/setup-isolate-deserialize.cc',
++        # Written by run_mksnapshot below.  Listed here rather than taken
++        # from the action's outputs so that embedded.S can be left out on
++        # the one configuration that does not assemble it (see the
++        # conditions at the end of this target).
++        '<(INTERMEDIATE_DIR)/snapshot.cc',
+       ],
+       'xcode_settings': {
+         # V8 7.4 over macOS10.11 compatibility
+@@ -417,7 +422,6 @@
+             '<(INTERMEDIATE_DIR)/snapshot.cc',
+             '<(INTERMEDIATE_DIR)/embedded.S',
+           ],
+-          'process_outputs_as_sources': 1,
+           'conditions': [
+             ['v8_random_seed', {
+               'variables': {
+@@ -506,6 +510,12 @@
+             'abseil.gyp:abseil',
+           ]
+         }],
++        # With clang on Windows, mksnapshot writes embedded.S in GNU syntax,
++        # which ml64 cannot assemble; the action below turns it into inline
++        # assembly in a C++ file, and that is what gets compiled.  Everywhere
++        # else embedded.S is assembled as it is.  gyp's ninja generator hands
++        # every .S in the sources to ml64, so on the clang configuration the
++        # .S must not be a source at all -- MSBuild merely ignored it.
+         ['OS=="win" and clang==1', {
+           'actions': [
+             {
+@@ -526,6 +536,10 @@
+               ],
+             },
+           ],
++        }, {
++          'sources': [
++            '<(INTERMEDIATE_DIR)/embedded.S',
++          ],
+         }],
+       ],
+     },  # v8_snapshot
