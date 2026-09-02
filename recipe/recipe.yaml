@@ -5,7 +5,7 @@ context:
   # package's version: what ships is V8, and node is only how it is built.
   version: "14.6.202.34"
   node_version: "26.6.0"
-  build: 0
+  build: 1
 
 package:
   name: v8-embed
