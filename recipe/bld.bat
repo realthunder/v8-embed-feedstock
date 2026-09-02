@@ -78,9 +78,17 @@ echo GYP_MSVS_VERSION=%GYP_MSVS_VERSION% GYP_MSVS_OVERRIDE_PATH=%GYP_MSVS_OVERRI
 :: Which clang-cl, and its version: configure.py wants --clang-cl=<version>,
 :: the same way vcbuild.bat passes it.  `clang --version` starts with
 :: "clang version X.Y.Z", and the third word is the number.
+set "PCH="
 if "%V8_WIN_TOOLCHAIN%"=="conda-clang-cl" (
     set "CLANG_EXE=clang.exe"
     set "GENERATOR=--ninja"
+) else if "%V8_WIN_TOOLCHAIN%"=="conda-clang-cl-nopch" (
+    set "CLANG_EXE=clang.exe"
+    set "GENERATOR=--ninja"
+    rem --use-ccache-win is consumed by exactly one thing in the tree: the
+    rem condition in v8.gyp that turns V8's precompiled header off for clang.
+    rem So it is the switch for a build without the pch, whatever its name.
+    set "PCH=--use-ccache-win"
 ) else if "%V8_WIN_TOOLCHAIN%"=="vs-clang-cl" (
     set "CLANG_EXE=%VCINSTALLDIR%\Tools\Llvm\x64\bin\clang.exe"
     set "GENERATOR="
@@ -121,7 +129,7 @@ python configure.py ^
     --without-ssl ^
     --v8-disable-temporal-support ^
     --with-intl=small-icu ^
-    --clang-cl=%CLANG_VERSION%
+    --clang-cl=%CLANG_VERSION% %PCH%
 if errorlevel 1 exit 1
 
 :: One target, not `all`: node, npm, openssl and the test binaries are all in
@@ -137,12 +145,18 @@ if not defined CPU_COUNT set "CPU_COUNT=4"
 :: node.sln would mean knowing the solution folder gyp filed it under.
 :: common.gypi sends the output to out/<Configuration>/, the same place
 :: ninja puts it.
-if "%V8_WIN_TOOLCHAIN%"=="conda-clang-cl" (
-    ninja -C out/Release -j%CPU_COUNT% v8
-    if errorlevel 1 exit 1
-) else (
+if "%V8_WIN_TOOLCHAIN%"=="vs-clang-cl" (
     msbuild tools\v8_gypfiles\v8.vcxproj /m:%CPU_COUNT% /p:Configuration=Release /p:Platform=%DEST_CPU% /clp:NoItemAndPropertyList;Verbosity=minimal /nologo
     if errorlevel 1 exit 1
+) else (
+    ninja -C out/Release -j%CPU_COUNT% v8
+    if errorlevel 1 (
+        rem Trial diagnostics for the one failure seen so far; see diag_win.py.
+        pushd out\Release
+        python "%RECIPE_DIR%\diag_win.py" obj\deps\v8\src\codegen\v8_base_without_compiler.compiler.obj StrongDescriptorArray
+        popd
+        exit 1
+    )
 )
 
 :: Everything past here is the same job on every platform; see install.py.

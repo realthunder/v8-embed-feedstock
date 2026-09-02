@@ -22,11 +22,15 @@ jobs:
       max-parallel: 50
       matrix:
         include:
-          # TRIAL: only the two Windows toolchain variants, and no upload.
+          # TRIAL: only the Windows toolchain variants, and no upload.
           # The unix entries are removed by hand so this push does not
           # re-run the linux/macOS jobs already running for the previous
           # commit; a `conda smithy rerender` restores them.
           - CONFIG: win_64_v8_win_toolchainconda-clang-cl
+            UPLOAD_PACKAGES: False
+            os: windows
+            runs_on: ['windows-latest']
+          - CONFIG: win_64_v8_win_toolchainconda-clang-cl-nopch
             UPLOAD_PACKAGES: False
             os: windows
             runs_on: ['windows-latest']

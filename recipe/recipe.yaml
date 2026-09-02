@@ -55,7 +55,7 @@ requirements:
     # and the compiler is clang-cl.  conda-forge's clang-cl package, when the
     # variant asks for it (compiler('clang') resolves to it on Windows); the
     # one inside Visual Studio otherwise, which needs nothing from here.
-    - if: win and v8_win_toolchain == "conda-clang-cl"
+    - if: win and v8_win_toolchain != "vs-clang-cl"
       then:
         - ${{ compiler('clang') }}
         - ${{ compiler('clangxx') }}
