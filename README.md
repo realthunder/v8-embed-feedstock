@@ -273,56 +273,59 @@ build is how Chromium builds V8 there.
 **The compiler is clang-cl, not MSVC.** V8 dropped MSVC at 13.0 and node
 followed at 24 ("ClangCL is required to compile on Windows"); the headers
 no longer compile with `cl.exe` -- `FLEXIBLE_ARRAY_MEMBER` is a zero-length
-array in a base class, C2503. Where the clang-cl comes from is the
-`v8_win_toolchain` variant, and for now both are built:
+array in a base class, C2503. What ships is conda-forge's pinned
+`clang-cl` (`compiler('clang')` resolves to it on Windows) layered on the
+`vs2022` activation, which stays for INCLUDE, LIB and `link.exe`, driven
+by ninja like every other platform. Node's own Windows build is
+`vcbuild.bat`, i.e. MSBuild with the clang-cl that ships inside Visual
+Studio; that route was built and verified as well (the `v8_win_toolchain`
+trial in this repository's history, up to commit 4262448) and was not
+chosen because its compiler is whatever the CI image carries that month.
 
-- `conda-clang-cl`: conda-forge's pinned `clang-cl` package layered on the
-  `vs2022` activation (which stays for INCLUDE, LIB and `link.exe`), through
-  ninja like every other platform. Two things had to be fixed for that,
-  because the ninja generator on Windows is a path node itself never runs
-  -- node's Windows build is `vcbuild.bat`, which is MSBuild. `configure.py
-  --clang-cl` only set gyp's `clang` variable, which the ninja generator
-  ignores; patch 0104 makes it emit the `make_global_settings` the
-  generator does read, and adds compiler-rt's builtins to the link. And gyp
-  wrote a Python `map` repr into the precompiled-header compile's flags
-  (nodejs/node#57633, fixed upstream in gyp-next#355 after node 26.6.0's
-  copy); patch 0105 is that fix. And gyp's ninja emulation had no
-  translation for the MSBuild `LanguageStandard` property, the only place
-  common.gypi puts the C++ standard when the compiler is clang, so a ninja
-  build compiled with no `/std:` at all; patch 0106 adds it. `bld.bat` also
-  strips the `/std:c++17` conda's clang-cl activation exports, which gyp's
-  ninja generator would otherwise append after V8's own flag.
-- `vs-clang-cl`: the clang-cl that ships inside Visual Studio on the CI
-  image, through MSBuild and the ClangCL platform toolset -- node's own
-  build. Unpinned, since it is whatever the runner image installed.
+The ninja generator on Windows is a path node itself never runs, and it
+took six patches, every one a fault in gyp or in V8's GYP port rather
+than in this recipe:
 
-Common to both: a genccode compiled by clang refuses to guess the machine
-type for the ICU data object it writes, and node's small-icu action for
-Windows never told it (node's own Windows builds are full-icu); patch 0107
-is nodejs/node#64263, which passes `-c <target_arch>`. And `link.exe`
-takes from a static library only what is referenced, so a DLL linked out
-of V8's static libraries came out at 8 KB with an empty import library --
-gyp's ninja generator wraps the inputs in `--whole-archive` on Linux and
-`v8.gyp` says `-all_load` for macOS, but nothing said it for Windows.
-Patch 0108 puts `/WHOLEARCHIVE:` on the six libraries that are V8 itself.
+- 0104 -- `configure.py --clang-cl` only set gyp's `clang` variable, which
+  the ninja generator ignores; it now emits the `make_global_settings`
+  the generator reads, and puts compiler-rt's builtins on the link line
+  (the MSBuild toolset does that for `link.exe`, nothing did for ninja).
+- 0105 -- gyp wrote a Python `map` repr into the precompiled-header
+  compile's flags (nodejs/node#57633, fixed upstream in gyp-next#355
+  after node 26.6.0's copy).
+- 0106 -- with clang, common.gypi puts the C++ standard only in the
+  MSBuild property `LanguageStandard`, which the ninja emulation did not
+  translate, so V8 compiled with no `/std:` at all. `bld.bat` also strips
+  the `/std:c++17` conda's clang-cl activation exports, which the generator
+  would otherwise append after V8's own flag.
+- 0107 -- a genccode compiled by clang refuses to guess the machine type
+  for the ICU data object it writes, and node's small-icu action for
+  Windows never told it (node's own Windows builds are full-icu). This is
+  nodejs/node#64263.
+- 0108 -- `link.exe` takes from a static library only what is referenced,
+  so a DLL linked out of V8's static libraries came out at 8 KB with an
+  empty import library; gyp's ninja generator wraps the inputs in
+  `--whole-archive` on Linux and `v8.gyp` says `-all_load` for macOS, but
+  nothing said it for Windows. `/WHOLEARCHIVE:` on the six libraries that
+  are V8 itself, spelled as the paths each generator uses, plus the system
+  libraries (dbghelp, winmm, ...) that whole-archiving libbase brings in
+  and that `v8.gyp` declared only for direct dependents.
+- 0110 -- gyp's ninja generator spells the `.tq` arguments with
+  backslashes, and torque files the classes that have no header of their
+  own under the fixed name `src/objects/torque-defined-classes.tq` by
+  exact string compare; the lookup failed in silence and
+  `torque-defined-classes-tq.inc` came out empty. torque now finds a
+  source under either spelling.
+- 0111 -- with clang, mksnapshot writes the embedded builtins in GNU
+  assembler syntax, which `v8.gyp` already turns into inline assembly in a
+  C++ file -- but the `.S` stayed a source of the target, and the ninja
+  generator hands every `.S` to ml64, where MSBuild had merely ignored
+  it. The snapshot sources are now listed explicitly.
 
-Two more, ninja-only. gyp runs every Windows action as a single
-`cmd.exe /c` line, and cmd.exe reads 8191 characters of it; torque's
-line, naming some 245 `.tq` files, is about that long. Patch 0109 hands a
-command that starts with an executable to `CreateProcess` directly, which
-takes 32K. And gyp's ninja generator spells those `.tq` arguments with
-backslashes, while torque files the classes that have no header of their
-own under the fixed name `src/objects/torque-defined-classes.tq` by exact
-string compare -- so on the ninja route that lookup failed in silence,
-`torque-defined-classes-tq.inc` came out empty, and V8 stopped compiling
-at the first file that needed those classes. Patch 0110 makes torque
-find a source under either spelling. (MSBuild spells them with slashes,
-which is why node's own Windows build never met it.) And with clang,
-mksnapshot writes the embedded builtins in GNU assembler syntax, which
-`v8.gyp` already turns into inline assembly in a C++ file -- but the `.S`
-stayed a source of the target, and gyp's ninja generator hands every `.S`
-to ml64, where MSBuild had merely ignored it. Patch 0111 keeps it out of
-the compiled sources on that configuration.
+The consumer test on Windows compiles with `cl.exe` (plus
+`/Zc:__cplusplus`, which `v8config.h`'s C++20 guard needs from MSVC) and
+links the clang-cl-built DLL: the MSVC-ABI interop an MSVC-built FreeCAD
+depends on is what the test proves.
 
 One more thing differs on Windows, in `bld.bat`: **no SONAME.** `v8.gyp`
 turns `soname_version` into a product extension without checking the OS,

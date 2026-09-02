@@ -22,23 +22,26 @@ jobs:
       max-parallel: 50
       matrix:
         include:
-          # TRIAL: the Windows toolchain variants and macOS, no upload; the
-          # linux entries are left out by hand (green and uploaded already).
-          # A `conda smithy rerender` restores the full matrix.
+          - CONFIG: linux_64_
+            UPLOAD_PACKAGES: True
+            os: ubuntu
+            runs_on: ['ubuntu-latest']
+            DOCKER_IMAGE: quay.io/condaforge/linux-anvil-x86_64:alma10
+          - CONFIG: linux_aarch64_
+            UPLOAD_PACKAGES: True
+            os: ubuntu
+            runs_on: ['ubuntu-24.04-arm']
+            DOCKER_IMAGE: quay.io/condaforge/linux-anvil-aarch64:alma10
           - CONFIG: osx_64_
-            UPLOAD_PACKAGES: False
+            UPLOAD_PACKAGES: True
             os: macos
             runs_on: ['macos-15-intel']
           - CONFIG: osx_arm64_
-            UPLOAD_PACKAGES: False
+            UPLOAD_PACKAGES: True
             os: macos
             runs_on: ['macos-15-intel']
-          - CONFIG: win_64_v8_win_toolchainconda-clang-cl
-            UPLOAD_PACKAGES: False
-            os: windows
-            runs_on: ['windows-latest']
-          - CONFIG: win_64_v8_win_toolchainvs-clang-cl
-            UPLOAD_PACKAGES: False
+          - CONFIG: win_64_
+            UPLOAD_PACKAGES: True
             os: windows
             runs_on: ['windows-latest']
     steps:

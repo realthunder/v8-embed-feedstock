@@ -5,7 +5,7 @@ context:
   # package's version: what ships is V8, and node is only how it is built.
   version: "14.6.202.34"
   node_version: "26.6.0"
-  build: 1
+  build: 2
 
 package:
   name: v8-embed
@@ -36,7 +36,6 @@ source:
     - patches/0106-Translate-LanguageStandard-for-the-ninja-generator-too.patch
     - patches/0107-Tell-genccode-the-CPU-architecture-under-clang-cl.patch
     - patches/0108-Link-the-whole-engine-into-the-Windows-DLL.patch
-    - patches/0109-Run-a-Windows-action-s-executable-without-the-shell.patch
     - patches/0110-torque-find-a-source-whatever-separator-it-was-named-with.patch
     - patches/0111-Do-not-assemble-the-embedded-blob-that-becomes-inline-asm.patch
 
@@ -44,10 +43,6 @@ build:
   number: ${{ build }}
   script:
     file: ${{ "bld.bat" if win else "build.sh" }}
-    env:
-      # Which clang-cl, and through which generator; the values are in
-      # conda_build_config.yaml and bld.bat is where they mean something.
-      V8_WIN_TOOLCHAIN: ${{ v8_win_toolchain if win else "" }}
 
 requirements:
   build:
@@ -55,11 +50,10 @@ requirements:
     - ${{ compiler('cxx') }}
     - ${{ stdlib('c') }}
     # On Windows the C/C++ compiler above is MSVC, which V8 no longer compiles
-    # with; it stays for its activation -- INCLUDE, LIB, link.exe, MSBuild --
-    # and the compiler is clang-cl.  conda-forge's clang-cl package, when the
-    # variant asks for it (compiler('clang') resolves to it on Windows); the
-    # one inside Visual Studio otherwise, which needs nothing from here.
-    - if: win and v8_win_toolchain != "vs-clang-cl"
+    # with (dropped at V8 13.0; node followed at 24).  It stays for its
+    # activation -- INCLUDE, LIB, link.exe -- and the compiler is conda-forge's
+    # clang-cl, which compiler('clang') resolves to on Windows.  See bld.bat.
+    - if: win
       then:
         - ${{ compiler('clang') }}
         - ${{ compiler('clangxx') }}

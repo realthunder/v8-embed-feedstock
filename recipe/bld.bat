@@ -13,24 +13,18 @@ setlocal enabledelayedexpansion
 :: The compiler is clang-cl, and it has to be.  V8 dropped MSVC at 13.0 and
 :: node followed at 24: its headers no longer compile with cl.exe
 :: (FLEXIBLE_ARRAY_MEMBER is a zero-length array in a base class, which MSVC
-:: rejects as C2503).  Where the clang-cl comes from is the V8_WIN_TOOLCHAIN
-:: variant, set from the recipe:
+:: rejects as C2503).  It is conda-forge's clang-cl, pinned, on top of the
+:: vs2022 activation for headers, libraries and link.exe, driven by ninja the
+:: way every other platform is.  Node's own Windows build is MSBuild with the
+:: clang-cl inside Visual Studio; that route was built and verified too (see
+:: README.md) and would ship whatever compiler the CI image happens to carry.
 ::
-::   conda-clang-cl  conda-forge's clang-cl package, pinned, on top of the
-::                   vs2022 activation for headers, libraries and link.exe;
-::                   built with ninja, the way every other platform is.
-::   vs-clang-cl     the clang-cl that ships as a Visual Studio component,
-::                   driven by MSBuild through the ClangCL platform toolset --
-::                   node's own Windows build, and the only one node tests.
+:: gyp's ninja generator on Windows is a path node itself never runs, and the
+:: patches numbered 0104-0111 are what it took: see README.md.
 ::
-:: vcbuild.bat is deliberately not used in either case.  Its job is finding
-:: Python and Visual Studio, and conda's compiler activation has already put
-:: both on PATH and filled in INCLUDE and LIB.
-
-if "%V8_WIN_TOOLCHAIN%"=="" (
-    echo V8_WIN_TOOLCHAIN is not set; the recipe should have set it
-    exit 1
-)
+:: vcbuild.bat is deliberately not used.  Its job is finding Python and Visual
+:: Studio, and conda's compiler activation has already put both on PATH and
+:: filled in INCLUDE and LIB.
 
 :: gyp's ninja generator appends CFLAGS, CXXFLAGS and LDFLAGS from the
 :: environment to its own, after them.  conda's clang-cl activation puts
@@ -75,29 +69,18 @@ if not defined GYP_MSVS_VERSION if "%VisualStudioVersion%"=="16.0" set "GYP_MSVS
 if defined GYP_MSVS_VERSION if not defined GYP_MSVS_OVERRIDE_PATH if defined VSINSTALLDIR set "GYP_MSVS_OVERRIDE_PATH=%VSINSTALLDIR%"
 echo GYP_MSVS_VERSION=%GYP_MSVS_VERSION% GYP_MSVS_OVERRIDE_PATH=%GYP_MSVS_OVERRIDE_PATH%
 
-:: Which clang-cl, and its version: configure.py wants --clang-cl=<version>,
-:: the same way vcbuild.bat passes it.  `clang --version` starts with
-:: "clang version X.Y.Z", and the third word is the number.
-set "PCH="
-if "%V8_WIN_TOOLCHAIN%"=="conda-clang-cl" (
-    set "CLANG_EXE=clang.exe"
-    set "GENERATOR=--ninja"
-) else if "%V8_WIN_TOOLCHAIN%"=="vs-clang-cl" (
-    set "CLANG_EXE=%VCINSTALLDIR%\Tools\Llvm\x64\bin\clang.exe"
-    set "GENERATOR="
-) else (
-    echo unknown V8_WIN_TOOLCHAIN "%V8_WIN_TOOLCHAIN%"
-    exit 1
-)
+:: configure.py wants --clang-cl=<version>, the same way vcbuild.bat passes
+:: it.  `clang --version` starts with "clang version X.Y.Z", and the third
+:: word is the number.
 set "CLANG_VERSION="
-for /F "tokens=3" %%i in ('"%CLANG_EXE%" --version') do (
+for /F "tokens=3" %%i in ('clang.exe --version') do (
     if not defined CLANG_VERSION set "CLANG_VERSION=%%i"
 )
 if not defined CLANG_VERSION (
-    echo could not get a version from "%CLANG_EXE%" --version
+    echo could not get a version from clang.exe --version
     exit 1
 )
-echo clang-cl %CLANG_VERSION% from "%CLANG_EXE%"
+echo clang-cl %CLANG_VERSION%
 
 :: --with-intl=small-icu, the same as build.sh; see the note there.
 ::
@@ -111,10 +94,9 @@ echo clang-cl %CLANG_VERSION% from "%CLANG_EXE%"
 ::
 :: --clang-cl sets gyp's `clang` variable.  With --ninja that alone is not
 :: enough -- see patches/0104, which is what makes the ninja generator run
-:: clang-cl rather than the cl.exe on PATH.  Without --ninja, gyp writes
-:: MSBuild projects with the ClangCL platform toolset, node's own path.
+:: clang-cl rather than the cl.exe on PATH.
 python configure.py ^
-    %GENERATOR% ^
+    --ninja ^
     --verbose ^
     --dest-cpu=%DEST_CPU% ^
     --shared ^
@@ -122,7 +104,7 @@ python configure.py ^
     --without-ssl ^
     --v8-disable-temporal-support ^
     --with-intl=small-icu ^
-    --clang-cl=%CLANG_VERSION% %PCH%
+    --clang-cl=%CLANG_VERSION%
 if errorlevel 1 exit 1
 
 :: One target, not `all`: node, npm, openssl and the test binaries are all in
@@ -132,25 +114,8 @@ if errorlevel 1 exit 1
 :: maglev translation units take a gigabyte or two each, so an unbounded build
 :: on a wide machine exhausts memory.
 if not defined CPU_COUNT set "CPU_COUNT=4"
-::
-:: With MSBuild, the project rather than the solution: MSBuild builds a
-:: project's references along with it, and addressing one project inside
-:: node.sln would mean knowing the solution folder gyp filed it under.
-:: common.gypi sends the output to out/<Configuration>/, the same place
-:: ninja puts it.
-if "%V8_WIN_TOOLCHAIN%"=="vs-clang-cl" (
-    msbuild tools\v8_gypfiles\v8.vcxproj /m:%CPU_COUNT% /p:Configuration=Release /p:Platform=%DEST_CPU% /clp:NoItemAndPropertyList;Verbosity=minimal /nologo
-    if errorlevel 1 exit 1
-) else (
-    ninja -C out/Release -j%CPU_COUNT% v8
-    if errorlevel 1 (
-        rem Trial diagnostics for the one failure seen so far; see diag_win.py.
-        pushd out\Release
-        python "%RECIPE_DIR%\diag_win.py" obj\deps\v8\src\codegen\v8_base_without_compiler.compiler.obj StrongDescriptorArray
-        popd
-        exit 1
-    )
-)
+ninja -C out/Release -j%CPU_COUNT% v8
+if errorlevel 1 exit 1
 
 :: Everything past here is the same job on every platform; see install.py.
 python "%RECIPE_DIR%\install.py" ^
